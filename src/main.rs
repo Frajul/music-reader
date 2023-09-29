@@ -1,4 +1,5 @@
 use cairo::Context;
+use clap::Parser;
 use gio::ApplicationFlags;
 use glib::clone;
 use gtk4::prelude::*;
@@ -6,30 +7,34 @@ use gtk4::{Application, ApplicationWindow, DrawingArea, Label};
 use poppler::PopplerDocument;
 use std::cell::RefCell;
 use std::env;
-use std::ffi::OsString;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 const APP_ID: &str = "de.frajul.music-reader";
 
-fn main() {
-    let app = Application::builder()
-        .application_id(APP_ID)
-        .flags(ApplicationFlags::HANDLES_OPEN | ApplicationFlags::HANDLES_COMMAND_LINE)
-        .build();
-
-    app.connect_command_line(move |app, cmdline| {
-        build_ui(&app, cmdline.arguments());
-        0
-    });
-    app.run_with_args(&env::args().collect::<Vec<_>>());
-    app.run();
+#[derive(Parser)]
+#[command(author, version, about)]
+struct Cli {
+    file: Option<PathBuf>,
 }
 
-fn build_ui(app: &Application, arguments: Vec<OsString>) {
-    let filename = arguments
-        .get(1)
-        .and_then(|arg| arg.clone().into_string().ok());
+fn main() {
+    let cli = Cli::parse();
+    println!("Parse args");
+    let app = Application::builder()
+        .application_id(APP_ID)
+        .flags(gio::ApplicationFlags::FLAGS_NONE)
+        .build();
 
+    app.connect_activate(move |app| {
+        build_ui(&app, &cli);
+    });
+
+    app.run_with_args(&[] as &[&str]);
+}
+
+fn build_ui(app: &Application, cli: &Cli) {
+    println!("building ui");
     let open_file_button = gtk4::Button::from_icon_name("document-open");
 
     let app_wrapper = gtk4::Box::builder()
@@ -59,7 +64,8 @@ fn build_ui(app: &Application, arguments: Vec<OsString>) {
         }
     });
 
-    let load_doc = move |filename: String| {
+    let load_doc = move |file: &PathBuf| {
+        println!("Loading file...");
         let drawing_area = DrawingArea::builder()
             .width_request(100)
             .height_request(100)
@@ -81,7 +87,7 @@ fn build_ui(app: &Application, arguments: Vec<OsString>) {
         }
         bottom_bar.append(&page_indicator);
 
-        let doc = PopplerDocument::new_from_file(filename, "").unwrap();
+        let doc = PopplerDocument::new_from_file(file, "").unwrap();
 
         let num_pages = doc.get_n_pages();
         let num_pages_ref = Rc::new(RefCell::new(num_pages));
@@ -161,8 +167,9 @@ fn build_ui(app: &Application, arguments: Vec<OsString>) {
         });
     };
 
-    if filename.is_some() {
-        load_doc(filename.unwrap());
+    match cli.file.as_ref() {
+        Some(file) => load_doc(file),
+        None => {}
     }
 
     open_file_button.connect_clicked(clone!(@weak window, @strong load_doc => move |_button| {
@@ -176,8 +183,8 @@ fn build_ui(app: &Application, arguments: Vec<OsString>) {
         filechooser.set_transient_for(Some(&window));
         filechooser.connect_response(clone!(@strong load_doc => move |d, response| {
             if response == gtk4::ResponseType::Accept {
-                let path = d.file().unwrap().path().unwrap().into_os_string().into_string().unwrap();
-                load_doc(path);
+                let path = d.file().unwrap().path().unwrap();
+                load_doc(&path);
             }
             d.destroy();
         }));

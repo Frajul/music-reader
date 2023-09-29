@@ -10,3 +10,4 @@ glib-macros = "0.15.11"
 gio = "0.15.12"
 glib = "0.15.12"
 gtk4 = "0.4.8"
+clap = { version = "4.4.6", features = ["derive"] }

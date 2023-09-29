@@ -131,20 +131,30 @@ fn build_ui(app: &Application, arguments: Vec<OsString>) {
 
             let page = doc.get_page(**current_page_number - 1).unwrap();
             let (w, h) = page.get_size();
+
             let width_diff = area.width() as f64 / w;
             let height_diff = area.height() as f64 / h;
             context.save().unwrap();
             if width_diff > height_diff {
+                context.translate(
+                    (area.width() as f64 - w * height_diff) / 2.0,
+                    (area.height() as f64 - h * height_diff) / 2.0,
+                );
                 context.scale(height_diff, height_diff);
             } else {
+                context.translate(
+                    (area.width() as f64 - w * width_diff) / 2.0,
+                    (area.height() as f64 - h * width_diff) / 2.0,
+                );
                 context.scale(width_diff, width_diff);
             }
+
             page.render(&context);
 
             let r = ctx.paint();
             match r {
                 Err(v) => println!("Error painting PDF: {v:?}"),
-                Ok(_v) => println!(""),
+                Ok(_v) => {}
             }
 
             ctx.show_page().unwrap();

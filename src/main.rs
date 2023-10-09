@@ -2,13 +2,9 @@
 
 use cairo::Context;
 use clap::Parser;
-use gio::ApplicationFlags;
-use glib::clone;
 use gtk4::prelude::*;
 use gtk4::{Application, ApplicationWindow, DrawingArea, Label};
-use poppler::PopplerDocument;
 use std::cell::RefCell;
-use std::env;
 use std::path::PathBuf;
 use std::rc::Rc;
 
@@ -38,6 +34,11 @@ fn main() {
 struct Ui {
     bottom_bar: gtk4::Box,
     header_bar: gtk4::HeaderBar,
+}
+
+struct DocumentCanvas {
+    document: poppler::Document,
+    current_page_number: i32,
 }
 
 fn toggle_fullscreen(ui: &Ui) {
@@ -108,9 +109,13 @@ fn build_ui(app: &Application, cli: &Cli) {
         }
         ui.borrow().bottom_bar.append(&page_indicator);
 
-        let doc = PopplerDocument::new_from_file(file, "").unwrap();
+        // let doc = PopplerDocument::new_from_file(file, "").unwrap();
+        // let doc = PopplerDocument::from
+        // TODO: catch errors
+        let uri = format!("file://{}", file.to_str().unwrap());
+        let doc = poppler::Document::from_file(&uri, None).unwrap();
 
-        let num_pages = doc.get_n_pages();
+        let num_pages = doc.n_pages();
         let current_page_number = Rc::new(RefCell::new(1));
 
         let surface = cairo::ImageSurface::create(cairo::Format::Rgb24, 0, 0).unwrap();
@@ -142,18 +147,17 @@ fn build_ui(app: &Application, cli: &Cli) {
                  }),
              );
 
-        drawing_area.add_controller(&click);
+        drawing_area.add_controller(click);
 
         drawing_area.set_draw_func(
             glib::clone!(@strong current_page_number => @default-panic, move |area, context, _a, _b| {
-                println!("Draw!");
                 context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
                 context.paint().unwrap();
                 context.fill().expect("uh oh");
                 context.paint().unwrap();
 
-                let page = doc.get_page(*current_page_number.borrow_mut()- 1).unwrap();
-                let (w, h) = page.get_size();
+                let page = doc.page(*current_page_number.borrow_mut()- 1).unwrap();
+                let (w, h) = page.size();
 
                 let width_diff = area.width() as f64 / w;
                 let height_diff = area.height() as f64 / h;
@@ -172,7 +176,7 @@ fn build_ui(app: &Application, cli: &Cli) {
                     context.scale(width_diff, width_diff);
                 }
 
-                page.render(&context);
+                page.render(context);
 
                 let r = ctx.paint();
                 match r {

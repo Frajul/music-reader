@@ -22,10 +22,9 @@ fn main() {
     let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| {
-        let myui = build_ui(&app);
-        match cli.file.as_ref() {
-            Some(file) => ui::load_document(file, Rc::clone(&myui)),
-            None => {}
+        let myui = build_ui(app);
+        if let Some(file) = cli.file.as_ref() {
+            ui::load_document(file, Rc::clone(&myui));
         }
     });
 
@@ -33,6 +32,5 @@ fn main() {
 }
 
 fn build_ui(app: &Application) -> Rc<RefCell<Ui>> {
-    let ui = Ui::build(app);
-    ui
+    Ui::build(app)
 }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
 use cairo::{Context, Format, ImageSurface};
 use gtk4::{
@@ -190,17 +190,17 @@ fn choose_file(ui: Rc<RefCell<Ui>>, window: &ApplicationWindow) {
     filechooser.connect_response(move |d, response| {
         if response == ResponseType::Accept {
             let path = d.file().unwrap().path().unwrap();
-            load_document(&path, Rc::clone(&ui));
+            load_document(path, Rc::clone(&ui));
         }
         d.destroy();
     });
     filechooser.show()
 }
 
-pub fn load_document(file: &PathBuf, ui: Rc<RefCell<Ui>>) {
+pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     println!("Loading file...");
     // TODO: catch errors, maybe show error dialog
-    let uri = format!("file://{}", file.to_str().unwrap());
+    let uri = format!("file://{}", file.as_ref().to_str().unwrap());
     let document_canvas = DocumentCanvas::new(poppler::Document::from_file(&uri, None).unwrap());
     ui.borrow_mut().document_canvas = Some(document_canvas);
 

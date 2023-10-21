@@ -65,7 +65,19 @@ fn update_page_status(ui: &Ui) {
     ui.drawing_area.queue_draw();
 }
 
-fn process_touch(ui: &mut Ui, x: f64, y: f64) {
+fn process_right_click(ui: &mut Ui, x: f64, y: f64) {
+    if ui.document_canvas.is_none() {
+        return;
+    }
+
+    let doc = ui.document_canvas.as_mut().unwrap();
+    if doc.current_page_number > 1 {
+        doc.current_page_number -= 1;
+    }
+    update_page_status(ui);
+}
+
+fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
     if ui.document_canvas.is_none() {
         return;
     }
@@ -115,13 +127,20 @@ impl Ui {
         app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
-        let click = gtk4::GestureClick::new();
-        click.set_button(0);
-        click.connect_pressed(glib::clone!(@weak ui => @default-panic, move |_, _, x, y| {
-        process_touch(&mut ui.borrow_mut(), x, y);
+        let click_left = gtk4::GestureClick::new();
+        click_left.set_button(1);
+        click_left.connect_pressed(glib::clone!(@weak ui => @default-panic, move |_, _, x, y| {
+        process_left_click(&mut ui.borrow_mut(), x, y);
              }));
 
-        ui.borrow().drawing_area.add_controller(click);
+        let click_right = gtk4::GestureClick::new();
+        click_right.set_button(3);
+        click_right.connect_pressed(glib::clone!(@weak ui => @default-panic, move |_, _, x, y| {
+        process_right_click(&mut ui.borrow_mut(), x, y);
+             }));
+
+        ui.borrow().drawing_area.add_controller(click_left);
+        ui.borrow().drawing_area.add_controller(click_right);
 
         ui.borrow().drawing_area.set_draw_func(
             glib::clone!(@weak ui => move |area, context, _, _| {

@@ -5,6 +5,7 @@ use gtk4::{
     prelude::*, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
     FileChooserDialog, HeaderBar, Label, Orientation, ResponseType,
 };
+use poppler::Page;
 
 pub struct Ui {
     bottom_bar: gtk4::Box,
@@ -19,16 +20,42 @@ pub struct DocumentCanvas {
     document: poppler::Document,
     current_page_number: i32,
     num_pages: i32,
+    page_left: Option<Page>,
+    page_right: Option<Page>,
 }
 
 impl DocumentCanvas {
     pub fn new(document: poppler::Document) -> Self {
         let num_pages = document.n_pages();
+        let page_left = document.page(0);
+        let page_right = document.page(1);
         DocumentCanvas {
             document,
             num_pages,
             current_page_number: 1,
+            page_left,
+            page_right,
         }
+    }
+
+    pub fn increase_page_number(&mut self) {
+        if self.current_page_number >= self.num_pages - 1 {
+            return;
+        }
+
+        self.current_page_number += 1;
+        self.page_left = self.page_right.take();
+        self.page_right = self.document.page(self.current_page_number);
+    }
+
+    pub fn decrease_page_number(&mut self) {
+        if self.current_page_number <= 1 {
+            return;
+        }
+
+        self.current_page_number -= 1;
+        self.page_right = self.page_left.take();
+        self.page_left = self.document.page(self.current_page_number - 1);
     }
 }
 
@@ -70,10 +97,7 @@ fn process_right_click(ui: &mut Ui, x: f64, y: f64) {
         return;
     }
 
-    let doc = ui.document_canvas.as_mut().unwrap();
-    if doc.current_page_number > 1 {
-        doc.current_page_number -= 1;
-    }
+    ui.document_canvas.as_mut().unwrap().decrease_page_number();
     update_page_status(ui);
 }
 
@@ -82,15 +106,13 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
         return;
     }
 
-    let doc = ui.document_canvas.as_mut().unwrap();
     let center = ui.drawing_area.width() / 2;
     if y < (ui.drawing_area.height() / 5) as f64 {
         toggle_fullscreen(ui);
-    } else if x > center as f64 && doc.current_page_number < doc.num_pages - 1 {
-        // Do not load last page since showing two pages would result in error
-        doc.current_page_number += 1;
-    } else if x < center as f64 && doc.current_page_number > 1 {
-        doc.current_page_number -= 1;
+    } else if x > center as f64 {
+        ui.document_canvas.as_mut().unwrap().increase_page_number();
+    } else if x < center as f64 {
+        ui.document_canvas.as_mut().unwrap().decrease_page_number();
     }
     update_page_status(ui);
 }
@@ -187,19 +209,17 @@ fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
     }
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
+    if document_canvas.page_left.is_none() || document_canvas.page_right.is_none() {
+        return;
+    }
+
+    let page_left = document_canvas.page_left.as_ref().unwrap();
+    let page_right = document_canvas.page_right.as_ref().unwrap();
+
     // Add white background
     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
     // context.fill().unwrap();
     // context.paint().unwrap();
-
-    let page_left = document_canvas
-        .document
-        .page(document_canvas.current_page_number - 1)
-        .unwrap();
-    let page_right = document_canvas
-        .document
-        .page(document_canvas.current_page_number)
-        .unwrap();
 
     let (w_left, h_left) = page_left.size();
     let (w_right, h_right) = page_right.size();
@@ -256,16 +276,18 @@ fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
     }
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
+    if document_canvas.page_left.is_none() {
+        return;
+    }
+
+    let page = document_canvas.page_left.as_ref().unwrap();
+
     // Draw background
     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
     // context.paint().unwrap();
     // context.fill().expect("uh oh");
     // context.paint().unwrap();
 
-    let page = document_canvas
-        .document
-        .page(document_canvas.current_page_number - 1)
-        .unwrap();
     let (w, h) = page.size();
 
     let width_diff = area.width() as f64 / w;

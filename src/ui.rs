@@ -8,6 +8,7 @@ use gtk4::{
 use poppler::Page;
 
 pub struct Ui {
+    window: ApplicationWindow,
     bottom_bar: gtk4::Box,
     header_bar: gtk4::HeaderBar,
     page_indicator: gtk4::Label,
@@ -60,14 +61,16 @@ impl DocumentCanvas {
 }
 
 pub fn toggle_fullscreen(ui: &Ui) {
-    match ui.header_bar.is_visible() {
+    match !ui.window.is_fullscreen() {
         true => {
             ui.header_bar.hide();
             ui.bottom_bar.hide();
+            ui.window.fullscreen();
         }
         false => {
             ui.header_bar.show();
             ui.bottom_bar.show();
+            ui.window.unfullscreen();
         }
     }
 }
@@ -128,8 +131,15 @@ impl Ui {
         let open_file_button = Button::from_icon_name("document-open");
 
         let app_wrapper = Box::builder().orientation(Orientation::Vertical).build();
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .title("Music Reader")
+            .child(&app_wrapper)
+            .maximized(true)
+            .build();
 
         let ui = Ui {
+            window,
             bottom_bar: Box::builder().hexpand_set(true).build(),
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
@@ -170,23 +180,17 @@ impl Ui {
             }),
         );
 
-        let window = ApplicationWindow::builder()
-            .application(app)
-            .title("Music Reader")
-            .child(&app_wrapper)
-            .maximized(true)
-            .build();
-        let window = Rc::new(RefCell::new(window));
-
-        window.borrow().set_titlebar(Some(&ui.borrow().header_bar));
+        ui.borrow()
+            .window
+            .set_titlebar(Some(&ui.borrow().header_bar));
 
         open_file_button.connect_clicked(
-            glib::clone!(@strong ui, @strong window => @default-panic, move |_button| {
-                choose_file(Rc::clone(&ui), &window.borrow());
+            glib::clone!(@strong ui => @default-panic, move |_button| {
+                choose_file(Rc::clone(&ui), &ui.borrow().window);
             }),
         );
 
-        window.borrow().present();
+        ui.borrow().window.present();
         ui
     }
 }

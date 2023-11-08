@@ -113,9 +113,19 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
     if y < (ui.drawing_area.height() / 5) as f64 {
         toggle_fullscreen(ui);
     } else if x > center as f64 {
-        ui.document_canvas.as_mut().unwrap().increase_page_number();
+        if x < ui.drawing_area.width() as f64 * 0.75 {
+            ui.document_canvas.as_mut().unwrap().increase_page_number();
+        } else {
+            ui.document_canvas.as_mut().unwrap().increase_page_number();
+            ui.document_canvas.as_mut().unwrap().increase_page_number();
+        }
     } else if x < center as f64 {
-        ui.document_canvas.as_mut().unwrap().decrease_page_number();
+        if x > ui.drawing_area.width() as f64 * 0.25 {
+            ui.document_canvas.as_mut().unwrap().decrease_page_number();
+        } else {
+            ui.document_canvas.as_mut().unwrap().decrease_page_number();
+            ui.document_canvas.as_mut().unwrap().decrease_page_number();
+        }
     }
     update_page_status(ui);
 }

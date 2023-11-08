@@ -22,9 +22,9 @@ fn main() {
     let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| {
-        let myui = build_ui(app);
+        let ui = build_ui(app);
         if let Some(file) = cli.file.as_ref() {
-            ui::load_document(file, Rc::clone(&myui));
+            ui::load_document(file, Rc::clone(&ui));
         }
     });
 

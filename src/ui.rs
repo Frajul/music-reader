@@ -1,11 +1,11 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, thread, time::Duration};
 
 use cairo::{Context, Format, ImageSurface};
 use gtk4::{
     prelude::*, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
     FileChooserDialog, HeaderBar, Label, Orientation, ResponseType,
 };
-use poppler::Page;
+use poppler::{Document, Page};
 
 pub struct Ui {
     window: ApplicationWindow,
@@ -17,46 +17,133 @@ pub struct Ui {
     document_canvas: Option<DocumentCanvas>,
 }
 
-pub struct DocumentCanvas {
-    document: poppler::Document,
-    current_page_number: i32,
-    num_pages: i32,
-    page_left: Option<Page>,
-    page_right: Option<Page>,
+pub struct PageCache {
+    max_num_pages: usize,
+    first_page_number: usize,
+    pages: BTreeMap<usize, Rc<Page>>,
 }
 
-impl DocumentCanvas {
-    pub fn new(document: poppler::Document) -> Self {
-        let num_pages = document.n_pages();
-        let page_left = document.page(0);
-        let page_right = document.page(1);
-        DocumentCanvas {
-            document,
-            num_pages,
-            current_page_number: 1,
-            page_left,
-            page_right,
+impl PageCache {
+    pub fn new(max_num_pages: usize) -> Self {
+        PageCache {
+            max_num_pages,
+            first_page_number: 0,
+            pages: BTreeMap::new(),
         }
     }
 
+    pub fn get_page(&self, page_number: usize) -> Option<Rc<Page>> {
+        let index = page_number - self.first_page_number;
+        self.pages.get(&index).map(Rc::clone)
+    }
+
+    pub fn cache_pages(
+        &mut self,
+        current_page_number: usize,
+        page_numbers: Vec<usize>,
+        document: &Document,
+    ) {
+        for page_number in page_numbers {
+            if self.pages.contains_key(&page_number) {
+                continue;
+            }
+
+            let page = document.page(page_number as i32);
+            if let Some(page) = page {
+                self.pages.insert(page_number, Rc::new(page));
+
+                if self.pages.len() > self.max_num_pages && self.pages.len() > 2 {
+                    let _result = self.remove_most_distant_page(current_page_number);
+                }
+            }
+        }
+    }
+
+    fn remove_most_distant_page(&mut self, current_page_number: usize) -> Result<(), ()> {
+        let (min_cached_page_number, min_cached_page) = self.pages.pop_first().ok_or(())?;
+        let (max_cached_page_number, max_cached_page) = self.pages.pop_last().ok_or(())?;
+
+        if current_page_number.abs_diff(min_cached_page_number)
+            > current_page_number.abs_diff(max_cached_page_number)
+        {
+            self.pages.insert(max_cached_page_number, max_cached_page);
+        } else {
+            self.pages.insert(min_cached_page_number, min_cached_page);
+        }
+
+        Ok(())
+    }
+}
+
+pub struct DocumentCanvas {
+    document: Document,
+    current_page_number: usize,
+    num_pages: usize,
+    page_cache: PageCache,
+}
+
+impl DocumentCanvas {
+    pub fn new(document: poppler::Document, max_num_cached_pages: usize) -> Self {
+        let num_pages = document.n_pages() as usize;
+        DocumentCanvas {
+            document,
+            num_pages,
+            current_page_number: 0,
+            page_cache: PageCache::new(max_num_cached_pages),
+        }
+    }
+
+    pub fn get_left_page(&self) -> Option<Rc<Page>> {
+        self.page_cache.get_page(self.current_page_number)
+    }
+
+    pub fn get_right_page(&self) -> Option<Rc<Page>> {
+        self.page_cache.get_page(self.current_page_number + 1)
+    }
+
     pub fn increase_page_number(&mut self) {
-        if self.current_page_number >= self.num_pages - 1 {
+        if self.current_page_number >= self.num_pages - 2 {
             return;
         }
 
         self.current_page_number += 1;
-        self.page_left = self.page_right.take();
-        self.page_right = self.document.page(self.current_page_number);
     }
 
     pub fn decrease_page_number(&mut self) {
-        if self.current_page_number <= 1 {
+        if self.current_page_number <= 0 {
             return;
         }
 
         self.current_page_number -= 1;
-        self.page_right = self.page_left.take();
-        self.page_left = self.document.page(self.current_page_number - 1);
+    }
+
+    pub fn cache_current_two_pages(&mut self) {
+        self.page_cache.cache_pages(
+            self.current_page_number,
+            vec![self.current_page_number, self.current_page_number + 1],
+            &self.document,
+        );
+    }
+
+    pub fn cache_surrounding_pages(&mut self) {
+        self.page_cache.cache_pages(
+            self.current_page_number,
+            vec![
+                self.current_page_number.saturating_sub(2),
+                self.current_page_number.saturating_sub(1),
+                self.current_page_number + 2,
+                self.current_page_number + 3,
+            ],
+            &self.document,
+        );
+    }
+
+    pub fn cache_all_pages(&mut self) {
+        self.page_cache.cache_pages(
+            self.current_page_number,
+            (0..self.document.n_pages() as usize).collect(),
+            &self.document,
+        );
     }
 }
 
@@ -83,8 +170,8 @@ fn update_page_status(ui: &Ui) {
             } else {
                 format!(
                     "{}-{} / {}",
-                    doc.current_page_number,
                     doc.current_page_number + 1,
+                    doc.current_page_number + 2,
                     doc.num_pages
                 )
             }
@@ -186,7 +273,7 @@ impl Ui {
 
         ui.borrow().drawing_area.set_draw_func(
             glib::clone!(@weak ui => move |area, context, _, _| {
-                draw(&ui.borrow(), area, context);
+                draw(&mut ui.borrow_mut(), area, context);
             }),
         );
 
@@ -205,7 +292,7 @@ impl Ui {
     }
 }
 
-fn draw(ui: &Ui, area: &DrawingArea, context: &Context) {
+fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
     if ui.document_canvas.is_none() {
         return;
     }
@@ -215,6 +302,12 @@ fn draw(ui: &Ui, area: &DrawingArea, context: &Context) {
     } else {
         draw_single_page(ui, area, context);
     }
+
+    // TODO: this makes the draw wait
+    // ui.document_canvas
+    //     .as_mut()
+    //     .unwrap()
+    //     .cache_surrounding_pages();
 }
 
 fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
@@ -223,12 +316,16 @@ fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
     }
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-    if document_canvas.page_left.is_none() || document_canvas.page_right.is_none() {
+    let page_left = document_canvas.get_left_page();
+    let page_right = document_canvas.get_right_page();
+
+    if page_left.is_none() || page_right.is_none() {
+        // TODO: show error message
         return;
     }
 
-    let page_left = document_canvas.page_left.as_ref().unwrap();
-    let page_right = document_canvas.page_right.as_ref().unwrap();
+    let page_left = page_left.unwrap();
+    let page_right = page_right.unwrap();
 
     // Add white background
     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -290,11 +387,12 @@ fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
     }
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-    if document_canvas.page_left.is_none() {
+    if document_canvas.get_left_page().is_none() {
+        // TODO: show error message
         return;
     }
 
-    let page = document_canvas.page_left.as_ref().unwrap();
+    let page = document_canvas.get_left_page().unwrap();
 
     // Draw background
     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -359,7 +457,11 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     println!("Loading file...");
     // TODO: catch errors, maybe show error dialog
     let uri = format!("file://{}", file.as_ref().to_str().unwrap());
-    let document_canvas = DocumentCanvas::new(poppler::Document::from_file(&uri, None).unwrap());
+    let mut document_canvas =
+        DocumentCanvas::new(poppler::Document::from_file(&uri, None).unwrap(), 1000);
+    // document_canvas.cache_current_two_pages();
+    document_canvas.cache_all_pages();
+
     ui.borrow_mut().document_canvas = Some(document_canvas);
 
     update_page_status(&ui.borrow());

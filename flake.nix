@@ -17,6 +17,7 @@
           pkg-config
           poppler
           wrapGAppsHook
+          deepin.deepin-pdfium
         ];
       in {
         defaultPackage = naersk-lib.buildPackage {

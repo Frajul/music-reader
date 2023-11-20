@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 poppler-rs = "0.22"
-cairo-rs = "0.18.2"
-glib-macros = "0.18.2"
-gio = "0.18.2"
-glib = "0.18.2"
-gtk4 = "0.7.3"
+cairo-rs = "0.18.3"
+glib-macros = "0.18.3"
+gio = "0.18.3"
+glib = "0.18.3"
 clap = { version = "4.4.6", features = ["derive"] }
+gtk = { version = "0.7.3", package = "gtk4", features = ["v4_8"] }
+async-channel = "2.1.0"
+pdfium-render = "0.8.15"

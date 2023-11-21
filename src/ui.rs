@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc};
+use std::{cell::RefCell, path::Path, rc::Rc};
 
 use async_channel::Sender;
 use cairo::{Context, Format, ImageSurface};
@@ -28,8 +28,8 @@ pub struct DocumentCanvas {
     current_page_number: usize,
     pub num_pages: Option<usize>,
     page_cache_sender: Sender<CacheCommand>,
-    pub left_page: Option<Arc<MyPageType>>,
-    pub right_page: Option<Arc<MyPageType>>,
+    pub left_page: Option<Rc<MyPageType>>,
+    pub right_page: Option<Rc<MyPageType>>,
 }
 
 impl DocumentCanvas {
@@ -44,7 +44,7 @@ impl DocumentCanvas {
     }
 
     pub fn increase_page_number(&mut self) {
-        if self.current_page_number >= self.num_pages.unwrap_or(0) - 2 {
+        if self.current_page_number >= self.num_pages.unwrap_or(0).saturating_sub(2) {
             return;
         }
 
@@ -52,11 +52,7 @@ impl DocumentCanvas {
     }
 
     pub fn decrease_page_number(&mut self) {
-        if self.current_page_number <= 0 {
-            return;
-        }
-
-        self.current_page_number -= 1;
+        self.current_page_number = self.current_page_number.saturating_sub(1);
     }
 
     pub fn cache_initial_pages(&self) {
@@ -271,12 +267,12 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                 ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages);
                 update_page_status(&ui.borrow())
             }
-            cache::CacheResponse::SinglePageLoaded { page } => {
+            cache::CacheResponse::SinglePageRetrieved { page } => {
                 ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
                 ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
                 ui.borrow().drawing_area.queue_draw();
             }
-            cache::CacheResponse::TwoPagesLoaded {
+            cache::CacheResponse::TwoPagesRetrieved {
                 page_left,
                 page_right,
             } => {

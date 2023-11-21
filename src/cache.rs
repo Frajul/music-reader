@@ -2,7 +2,7 @@ use poppler::{Document, Page};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::Arc,
+    rc::Rc,
 };
 
 use async_channel::Sender;
@@ -13,7 +13,7 @@ pub type MyPageType = Page;
 pub struct PageCache {
     document: Document,
     max_num_stored_pages: usize,
-    pages: BTreeMap<usize, Arc<MyPageType>>,
+    pages: BTreeMap<usize, Rc<MyPageType>>,
 }
 
 impl PageCache {
@@ -25,8 +25,8 @@ impl PageCache {
         }
     }
 
-    pub fn get_page(&self, page_number: usize) -> Option<Arc<MyPageType>> {
-        self.pages.get(&page_number).map(Arc::clone)
+    pub fn get_page(&self, page_number: usize) -> Option<Rc<MyPageType>> {
+        self.pages.get(&page_number).map(Rc::clone)
     }
 
     pub fn cache_pages(&mut self, page_numbers: Vec<usize>) {
@@ -37,7 +37,7 @@ impl PageCache {
             }
 
             if let Some(page) = self.document.page(page_number as i32) {
-                self.pages.insert(page_number, Arc::new(page));
+                self.pages.insert(page_number, Rc::new(page));
 
                 if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
                     let _result = self.remove_most_distant_page(page_number);
@@ -72,12 +72,12 @@ impl PageCache {
             CacheCommand::GetCurrentTwoPages { page_left_number } => {
                 if let Some(page_left) = self.get_page(page_left_number) {
                     if let Some(page_right) = self.get_page(page_left_number + 1) {
-                        Some(CacheResponse::TwoPagesLoaded {
+                        Some(CacheResponse::TwoPagesRetrieved {
                             page_left,
                             page_right,
                         })
                     } else {
-                        Some(CacheResponse::SinglePageLoaded { page: page_left })
+                        Some(CacheResponse::SinglePageRetrieved { page: page_left })
                     }
                 } else {
                     // TODO: if page left was not empty, this could be because page turning was too quick.
@@ -99,12 +99,12 @@ pub enum CacheResponse {
     DocumentLoaded {
         num_pages: usize,
     },
-    SinglePageLoaded {
-        page: Arc<MyPageType>,
+    SinglePageRetrieved {
+        page: Rc<MyPageType>,
     },
-    TwoPagesLoaded {
-        page_left: Arc<MyPageType>,
-        page_right: Arc<MyPageType>,
+    TwoPagesRetrieved {
+        page_left: Rc<MyPageType>,
+        page_right: Rc<MyPageType>,
     },
 }
 
@@ -126,20 +126,15 @@ where
 
         let mut cache = PageCache::new(document, 10);
 
-        loop {
-            if let Ok(command) = command_receiver.recv().await {
-                // if !command_receiver.is_empty() {
-                //     // ignore command if more up to date ones are available
-                //     continue;
-                // }
-                if let Some(response) = cache.process_command(command).await {
-                    // response_sender.send_blocking(response).unwrap();
-                    println!("Command processed, activating receiver....");
-                    receiver(response);
-                }
-            } else {
-                // Sender was closed, cache not needed anymore
-                break;
+        while let Ok(command) = command_receiver.recv().await {
+            // if !command_receiver.is_empty() {
+            //     // ignore command if more up to date ones are available
+            //     continue;
+            // }
+            if let Some(response) = cache.process_command(command).await {
+                // response_sender.send_blocking(response).unwrap();
+                println!("Command processed, activating receiver....");
+                receiver(response);
             }
         }
     });

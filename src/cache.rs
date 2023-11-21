@@ -3,6 +3,7 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     rc::Rc,
+    time::Instant,
 };
 
 use async_channel::Sender;
@@ -31,6 +32,7 @@ impl PageCache {
 
     pub fn cache_pages(&mut self, page_numbers: Vec<usize>) {
         println!("Caching pages {:?}", page_numbers);
+        let begin_of_cashing = Instant::now();
         for page_number in page_numbers {
             if self.pages.contains_key(&page_number) {
                 continue;
@@ -44,7 +46,10 @@ impl PageCache {
                 }
             }
         }
-        println!("done caching");
+        println!(
+            "done caching in {}ms",
+            begin_of_cashing.elapsed().as_millis()
+        );
     }
 
     fn remove_most_distant_page(&mut self, current_page_number: usize) -> Result<(), ()> {

@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use cairo::Context;
 
 use crate::ui::DocumentCanvas;
@@ -10,13 +12,17 @@ pub fn draw(
 ) {
     println!("Draw");
     if let Some(document_canvas) = document_canvas {
+        let begin_of_drawing = Instant::now();
         if document_canvas.num_pages.unwrap_or(0) > 1 {
             draw_two_pages(document_canvas, context, area_width, area_height);
         } else {
             draw_single_page(document_canvas, context, area_width, area_height);
         }
 
-        println!("Finished drawing");
+        println!(
+            "Finished drawing in {}ms",
+            begin_of_drawing.elapsed().as_millis()
+        );
         document_canvas.cache_surrounding_pages();
     }
 }

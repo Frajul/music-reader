@@ -1,4 +1,5 @@
 mod cache;
+mod draw;
 mod ui;
 
 use clap::Parser;

@@ -1,6 +1,6 @@
 use cairo::Context;
 
-use crate::ui::Ui;
+use crate::ui::{DocumentCanvas, Ui};
 use gtk::{prelude::*, DrawingArea};
 
 pub fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
@@ -11,21 +11,16 @@ pub fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
     if document_canvas.num_pages.unwrap_or(0) > 1 {
-        draw_two_pages(ui, area, context);
+        draw_two_pages(document_canvas, area, context);
     } else {
-        draw_single_page(ui, area, context);
+        draw_single_page(document_canvas, area, context);
     }
 
     println!("Finished drawing");
     document_canvas.cache_surrounding_pages();
 }
 
-fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
-    if ui.document_canvas.is_none() {
-        return;
-    }
-    let document_canvas = ui.document_canvas.as_ref().unwrap();
-
+fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context: &Context) {
     let page_left = document_canvas.left_page.as_ref();
     let page_right = document_canvas.right_page.as_ref();
 
@@ -77,27 +72,15 @@ fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
         area.width() as f64 / 2.0,
         area.height() as f64 / 2.0 - h_page / 2.0,
     );
+
     // Poppler sometimes crops white border, draw it manually
     context.rectangle(0.0, 0.0, w_right * scale_right, h_page);
     context.fill().unwrap();
     context.scale(scale_right, scale_right);
     page_right.render(context);
-
-    let r = ui.drawing_context.paint();
-    match r {
-        Err(v) => println!("Error painting PDF: {v:?}"),
-        Ok(_v) => {}
-    }
-
-    ui.drawing_context.show_page().unwrap();
 }
 
-fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
-    if ui.document_canvas.is_none() {
-        return;
-    }
-    let document_canvas = ui.document_canvas.as_ref().unwrap();
-
+fn draw_single_page(document_canvas: &DocumentCanvas, area: &DrawingArea, context: &Context) {
     if document_canvas.left_page.is_none() {
         // TODO: show error message
         return;
@@ -129,12 +112,4 @@ fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
     context.fill().unwrap();
 
     page.render(context);
-
-    let r = ui.drawing_context.paint();
-    match r {
-        Err(v) => println!("Error painting PDF: {v:?}"),
-        Ok(_v) => {}
-    }
-
-    ui.drawing_context.show_page().unwrap();
 }

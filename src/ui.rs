@@ -1,7 +1,6 @@
 use std::{cell::RefCell, path::Path, rc::Rc};
 
 use async_channel::Sender;
-use cairo::{Context, Format, ImageSurface};
 use gtk::{
     glib, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
     FileChooserDialog, HeaderBar, Label, Orientation, ResponseType,
@@ -20,7 +19,6 @@ pub struct Ui {
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
     drawing_area: gtk::DrawingArea,
-    pub drawing_context: cairo::Context,
     pub document_canvas: Option<DocumentCanvas>,
 }
 
@@ -162,11 +160,6 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
     update_page_status(ui);
 }
 
-fn create_drawing_context() -> Context {
-    let surface = ImageSurface::create(Format::Rgb24, 0, 0).unwrap();
-    Context::new(&surface).unwrap()
-}
-
 impl Ui {
     pub fn build(app: &Application) -> Rc<RefCell<Ui>> {
         println!("building ui");
@@ -191,7 +184,6 @@ impl Ui {
                 .hexpand(true)
                 .vexpand(true)
                 .build(),
-            drawing_context: create_drawing_context(),
             document_canvas: None,
         };
         let ui = Rc::new(RefCell::new(ui));

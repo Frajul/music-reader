@@ -1,15 +1,17 @@
-use std::{cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, thread, time::Duration};
+use std::{
+    cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, sync::Arc, thread, time::Duration,
+};
 
 use async_channel::Sender;
-use cairo::{Context, Format, ImageSurface};
+use cairo::{Context, Format, ImageSurface, ImageSurfaceData, ImageSurfaceDataOwned};
 use gtk::{
-    gdk::Paintable, gio, glib, prelude::*, Application, ApplicationWindow, Box, Button,
-    DrawingArea, FileChooserAction, FileChooserDialog, HeaderBar, Label, Orientation, Picture,
-    ResponseType,
+    gdk::Paintable, gio, glib, prelude::*, subclass::drawing_area, Application, ApplicationWindow,
+    Box, Button, DrawingArea, FileChooserAction, FileChooserDialog, HeaderBar, Label, Orientation,
+    Picture, ResponseType,
 };
 use poppler::{Document, Page};
 
-use crate::cache::{self, CacheCommand, PageCache};
+use crate::cache::{self, CacheCommand, MyPageType, PageCache};
 use glib::clone;
 use gtk::prelude::*;
 
@@ -28,6 +30,8 @@ pub struct DocumentCanvas {
     current_page_number: usize,
     num_pages: Option<usize>,
     page_cache_sender: Sender<CacheCommand>,
+    left_page: Option<Arc<MyPageType>>,
+    right_page: Option<Arc<MyPageType>>,
 }
 
 impl DocumentCanvas {
@@ -36,6 +40,8 @@ impl DocumentCanvas {
             current_page_number: 0,
             num_pages: None,
             page_cache_sender,
+            left_page: None,
+            right_page: None,
         }
     }
 
@@ -55,6 +61,14 @@ impl DocumentCanvas {
         self.current_page_number -= 1;
     }
 
+    pub fn cache_initial_pages(&self) {
+        self.page_cache_sender
+            .send_blocking(CacheCommand::CachePages {
+                pages: vec![self.current_page_number, self.current_page_number + 1],
+            })
+            .unwrap();
+    }
+
     pub fn cache_surrounding_pages(&self) {
         self.page_cache_sender
             .send_blocking(CacheCommand::CachePages {
@@ -66,14 +80,16 @@ impl DocumentCanvas {
                     self.current_page_number + 2,
                     self.current_page_number + 3,
                 ],
-            });
+            })
+            .unwrap();
     }
 
     pub fn request_to_draw_pages(&self) {
         self.page_cache_sender
             .send_blocking(CacheCommand::GetCurrentTwoPages {
                 page_left_number: self.current_page_number,
-            });
+            })
+            .unwrap();
     }
 }
 
@@ -95,6 +111,8 @@ pub fn toggle_fullscreen(ui: &Ui) {
 fn update_page_status(ui: &Ui) {
     let page_status = match &ui.document_canvas {
         Some(doc) => {
+            doc.request_to_draw_pages();
+
             if doc.num_pages.unwrap_or(0) == 1 {
                 format!(
                     "{} / {}",
@@ -113,7 +131,6 @@ fn update_page_status(ui: &Ui) {
         None => "No document loaded!".to_string(),
     };
     ui.page_indicator.set_label(page_status.as_str());
-    ui.drawing_area.queue_draw();
 }
 
 fn process_right_click(ui: &mut Ui, x: f64, y: f64) {
@@ -192,8 +209,8 @@ impl Ui {
         let ui = Rc::new(RefCell::new(ui));
 
         ui.borrow().header_bar.pack_start(&open_file_button);
-        // app_wrapper.prepend(&ui.borrow().drawing_area);
-        app_wrapper.prepend(&ui.borrow().picture);
+        app_wrapper.prepend(&ui.borrow().drawing_area);
+        // app_wrapper.prepend(&ui.borrow().picture);
         app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
@@ -209,14 +226,14 @@ impl Ui {
         process_right_click(&mut ui.borrow_mut(), x, y);
              }));
 
-        // ui.borrow().drawing_area.add_controller(click_left);
-        // ui.borrow().drawing_area.add_controller(click_right);
-        ui.borrow().picture.add_controller(click_left);
-        ui.borrow().picture.add_controller(click_right);
+        ui.borrow().drawing_area.add_controller(click_left);
+        ui.borrow().drawing_area.add_controller(click_right);
+        // ui.borrow().picture.add_controller(click_left);
+        // ui.borrow().picture.add_controller(click_right);
 
         ui.borrow().drawing_area.set_draw_func(
             glib::clone!(@weak ui => move |area, context, _, _| {
-                // draw(&mut ui.borrow_mut(), area, context, sender.clone());
+                draw(&mut ui.borrow_mut(), area, context);
             }),
         );
 
@@ -235,148 +252,167 @@ impl Ui {
     }
 }
 
-// fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context, sender: Sender<String>) {
-//     if ui.document_canvas.is_none() {
-//         return;
-//     }
-//     let document_canvas = ui.document_canvas.as_ref().unwrap();
-//     if document_canvas.num_pages.unwrap_or(0) > 1 {
-//         draw_two_pages(ui, area, context);
-//     } else {
-//         draw_single_page(ui, area, context);
-//     }
+fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
+    println!("Draw");
+    if ui.document_canvas.is_none() {
+        return;
+    }
+    let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-//     // gio::spawn_blocking(move || {
-//     //     ui.document_canvas
-//     //         .as_mut()
-//     //         .unwrap()
-//     //         .cache_surrounding_pages();
-//     // });
-// }
+    // let left_page = document_canvas.left_page.as_ref().unwrap();
+    // let left_page = left_page.as_ref();
 
-// fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
-//     if ui.document_canvas.is_none() {
-//         return;
-//     }
-//     let document_canvas = ui.document_canvas.as_ref().unwrap();
+    // let data: Vec<u8> = left_page.into_iter().map(|x| x.to_owned()).collect();
 
-//     let page_left = document_canvas.get_left_page();
-//     let page_right = document_canvas.get_right_page();
+    // let data: Vec<u8> = page.iter().map(|x| x.clone()).collect();
+    // let surface = ImageSurface::create_for_data(data, Format::Rgb24, 0, 0, 0).unwrap();
 
-//     if page_left.is_none() || page_right.is_none() {
-//         // TODO: show error message
-//         return;
-//     }
+    // context.set_source_surface(surface, 0.0, 0.0);
+    // context.paint();
 
-//     let page_left = page_left.unwrap();
-//     let page_right = page_right.unwrap();
+    if document_canvas.num_pages.unwrap_or(0) > 1 {
+        draw_two_pages(ui, area, context);
+    } else {
+        draw_single_page(ui, area, context);
+    }
 
-//     // Add white background
-//     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-//     // context.fill().unwrap();
-//     // context.paint().unwrap();
+    // gio::spawn_blocking(move || {
+    //     ui.document_canvas
+    //         .as_mut()
+    //         .unwrap()
+    //         .cache_surrounding_pages();
+    // });
+    println!("Finished drawing");
+    document_canvas.cache_surrounding_pages();
+}
 
-//     let (w_left, h_left) = page_left.size();
-//     let (w_right, h_right) = page_right.size();
+fn draw_two_pages(ui: &Ui, area: &DrawingArea, context: &Context) {
+    if ui.document_canvas.is_none() {
+        return;
+    }
+    let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-//     let h_max = f64::max(h_left, h_right);
-//     // Make sure both pages are rendered with the same height
-//     let w_max = match h_left < h_right {
-//         true => w_left * h_right / h_left + w_right,
-//         false => w_left + w_right * h_left / h_right,
-//     };
+    let page_left = document_canvas.left_page.as_ref();
+    let page_right = document_canvas.right_page.as_ref();
 
-//     let h_scale = area.height() as f64 / h_max;
-//     let w_scale = area.width() as f64 / w_max;
-//     let scale = f64::min(h_scale, w_scale);
-//     let h_page = h_max * scale;
+    if page_left.is_none() || page_right.is_none() {
+        // TODO: show error message
+        return;
+    }
 
-//     let scale_left = h_page / h_left;
-//     let scale_right = h_page / h_right;
+    let page_left = page_left.unwrap();
+    let page_right = page_right.unwrap();
 
-//     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-//     context.save().unwrap();
-//     context.translate(
-//         area.width() as f64 / 2.0 - w_left * scale_left,
-//         area.height() as f64 / 2.0 - h_page / 2.0,
-//     );
-//     // Poppler sometimes crops white border, draw it manually
-//     context.rectangle(0.0, 0.0, w_left * scale_left, h_page);
-//     context.fill().unwrap();
-//     context.scale(scale_left, scale_left);
-//     page_left.render(context);
+    // Add white background
+    // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    // context.fill().unwrap();
+    // context.paint().unwrap();
 
-//     context.restore().unwrap();
-//     context.translate(
-//         area.width() as f64 / 2.0,
-//         area.height() as f64 / 2.0 - h_page / 2.0,
-//     );
-//     // Poppler sometimes crops white border, draw it manually
-//     context.rectangle(0.0, 0.0, w_right * scale_right, h_page);
-//     context.fill().unwrap();
-//     context.scale(scale_right, scale_right);
-//     page_right.render(context);
+    let (w_left, h_left) = page_left.size();
+    let (w_right, h_right) = page_right.size();
 
-//     let r = ui.drawing_context.paint();
-//     match r {
-//         Err(v) => println!("Error painting PDF: {v:?}"),
-//         Ok(_v) => {}
-//     }
+    let h_max = f64::max(h_left, h_right);
+    // Make sure both pages are rendered with the same height
+    let w_max = match h_left < h_right {
+        true => w_left * h_right / h_left + w_right,
+        false => w_left + w_right * h_left / h_right,
+    };
 
-//     ui.drawing_context.show_page().unwrap();
-// }
-// fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
-//     if ui.document_canvas.is_none() {
-//         return;
-//     }
-//     let document_canvas = ui.document_canvas.as_ref().unwrap();
+    let h_scale = area.height() as f64 / h_max;
+    let w_scale = area.width() as f64 / w_max;
+    let scale = f64::min(h_scale, w_scale);
+    let h_page = h_max * scale;
 
-//     if document_canvas.get_left_page().is_none() {
-//         // TODO: show error message
-//         return;
-//     }
+    let scale_left = h_page / h_left;
+    let scale_right = h_page / h_right;
 
-//     let page = document_canvas.get_left_page().unwrap();
+    context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    context.save().unwrap();
+    context.translate(
+        area.width() as f64 / 2.0 - w_left * scale_left,
+        area.height() as f64 / 2.0 - h_page / 2.0,
+    );
+    // Poppler sometimes crops white border, draw it manually
+    context.rectangle(0.0, 0.0, w_left * scale_left, h_page);
+    context.fill().unwrap();
+    context.scale(scale_left, scale_left);
+    page_left.render(context);
 
-//     // Draw background
-//     // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-//     // context.paint().unwrap();
-//     // context.fill().expect("uh oh");
-//     // context.paint().unwrap();
+    context.restore().unwrap();
+    context.translate(
+        area.width() as f64 / 2.0,
+        area.height() as f64 / 2.0 - h_page / 2.0,
+    );
+    // Poppler sometimes crops white border, draw it manually
+    context.rectangle(0.0, 0.0, w_right * scale_right, h_page);
+    context.fill().unwrap();
+    context.scale(scale_right, scale_right);
+    page_right.render(context);
 
-//     let (w, h) = page.size();
+    let r = ui.drawing_context.paint();
+    match r {
+        Err(v) => println!("Error painting PDF: {v:?}"),
+        Ok(_v) => {}
+    }
 
-//     let width_diff = area.width() as f64 / w;
-//     let height_diff = area.height() as f64 / h;
-//     if width_diff > height_diff {
-//         context.translate(
-//             (area.width() as f64 - w * height_diff) / 2.0,
-//             (area.height() as f64 - h * height_diff) / 2.0,
-//         );
-//         context.scale(height_diff, height_diff);
-//     } else {
-//         context.translate(
-//             (area.width() as f64 - w * width_diff) / 2.0,
-//             (area.height() as f64 - h * width_diff) / 2.0,
-//         );
-//         context.scale(width_diff, width_diff);
-//     }
+    ui.drawing_context.show_page().unwrap();
+}
+fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
+    if ui.document_canvas.is_none() {
+        return;
+    }
+    let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-//     // Poppler sometimes crops white border, draw it manually
-//     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-//     context.rectangle(0.0, 0.0, w, h);
-//     context.fill().unwrap();
+    if document_canvas.left_page.is_none() {
+        // TODO: show error message
+        return;
+    }
 
-//     page.render(context);
+    let page = document_canvas.left_page.as_ref().unwrap();
+    // let page = ImageSurface::create_for_data(page.into(), Format::Rgb24, 0, 0, 0).unwrap();
 
-//     let r = ui.drawing_context.paint();
-//     match r {
-//         Err(v) => println!("Error painting PDF: {v:?}"),
-//         Ok(_v) => {}
-//     }
+    // context.set_source_surface(page, 0, 0);
+    // Draw background
+    // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    // context.paint().unwrap();
+    // context.fill().expect("uh oh");
+    // context.paint().unwrap();
 
-//     ui.drawing_context.show_page().unwrap();
-// }
+    let (w, h) = page.size();
+    // let w = page.width() as f64;
+    // let h = page.height() as f64;
+
+    let width_diff = area.width() as f64 / w;
+    let height_diff = area.height() as f64 / h;
+    if width_diff > height_diff {
+        context.translate(
+            (area.width() as f64 - w * height_diff) / 2.0,
+            (area.height() as f64 - h * height_diff) / 2.0,
+        );
+        context.scale(height_diff, height_diff);
+    } else {
+        context.translate(
+            (area.width() as f64 - w * width_diff) / 2.0,
+            (area.height() as f64 - h * width_diff) / 2.0,
+        );
+        context.scale(width_diff, width_diff);
+    }
+
+    // Poppler sometimes crops white border, draw it manually
+    context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
+    context.rectangle(0.0, 0.0, w, h);
+    context.fill().unwrap();
+
+    page.render(context);
+
+    let r = ui.drawing_context.paint();
+    match r {
+        Err(v) => println!("Error painting PDF: {v:?}"),
+        Ok(_v) => {}
+    }
+
+    ui.drawing_context.show_page().unwrap();
+}
 
 fn choose_file(ui: Rc<RefCell<Ui>>, window: &ApplicationWindow) {
     let filechooser = FileChooserDialog::builder()
@@ -402,23 +438,52 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     // TODO: catch errors, maybe show error dialog
     // let uri = format!("file://{}", file.as_ref().to_str().unwrap());
 
-    let (sender, receiver) = cache::spawn_async_cache(file);
-    // gtk::spawn
-    glib::spawn_future_local(clone!(@weak ui => async move {
-        while let Ok(cache_response) = receiver.recv().await {
-            match cache_response{
-    cache::CacheResponse::DocumentLoaded { num_pages } => todo!(), //ui.borrow_mut().document_canvas.unwrap().num_pages = Some(num_pages),
-                cache::CacheResponse::SinglePageLoaded { page } => { ui.borrow_mut().picture.set_paintable(Some(page.as_ref()));},
-    cache::CacheResponse::TwoPagesLoaded { page_left, page_right } => todo!(),
+    let sender = cache::spawn_async_cache(
+        file,
+        clone!(@weak ui => move |cache_response| match cache_response {
+            cache::CacheResponse::DocumentLoaded { num_pages } => {
+                ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages);
+                update_page_status(&ui.borrow())
             }
-        }
-    }));
+            cache::CacheResponse::SinglePageLoaded { page } => {
+                ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
+                ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
+                ui.borrow().drawing_area.queue_draw();
+            }
+            cache::CacheResponse::TwoPagesLoaded {
+                page_left,
+                page_right,
+            } => {
+                ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page_left);
+                ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
+                ui.borrow().drawing_area.queue_draw();
+            }
+        }),
+    );
+
+    println!("Spawned async cache");
+    // // gtk::spawn
+    // glib::spawn_future_local(clone!(@weak ui => async move {
+    //     println!("Waiting for cache response:...");
+    //     while let Ok(cache_response) = receiver.recv().await {
+    //         match cache_response{
+    //             cache::CacheResponse::DocumentLoaded { num_pages } => {ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages); update_page_status(&ui.borrow())},
+    //             cache::CacheResponse::SinglePageLoaded { page } => { ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
+    //             ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
+    // ui.borrow().drawing_area.queue_draw();
+    //             },
+    // cache::CacheResponse::TwoPagesLoaded { page_left, page_right } => { ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page_left);
+    //             ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
+    // ui.borrow().drawing_area.queue_draw();
+    // }
+    //         }
+    //     }
+    // }));
 
     let document_canvas = DocumentCanvas::new(sender);
-    document_canvas.cache_surrounding_pages();
-    // document_canvas.cache_all_pages();
-
-    // update_page_status(&ui.borrow());
-    document_canvas.request_to_draw_pages();
+    document_canvas.cache_initial_pages();
     ui.borrow_mut().document_canvas = Some(document_canvas);
+
+    update_page_status(&ui.borrow());
+    println!("finished loading document");
 }

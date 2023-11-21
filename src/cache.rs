@@ -1,6 +1,8 @@
-use glib::Bytes;
-use gtk::gdk::Texture;
+use cairo::{Context, Format, ImageSurface, ImageSurfaceData, ImageSurfaceDataOwned};
+use glib::{clone, Bytes};
+use gtk::{gdk::Texture, Picture};
 use pdfium_render::{pdfium, prelude::*};
+use poppler::{Document, Page};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -10,51 +12,67 @@ use std::{
 use async_channel::{Receiver, Sender};
 
 type PageNumber = usize;
+pub type MyPageType = Page;
 
-pub struct PageCache<'a> {
-    document: PdfDocument<'a>,
-    render_config: PdfRenderConfig,
+pub struct PageCache {
+    document: Document,
+    // render_config: PdfRenderConfig,
     max_num_stored_pages: usize,
-    pages: BTreeMap<usize, Arc<Texture>>,
+    pages: BTreeMap<usize, Arc<MyPageType>>,
 }
 
-impl<'a> PageCache<'a> {
+impl PageCache {
     pub fn new(
-        document: PdfDocument<'a>,
-        render_config: PdfRenderConfig,
+        document: Document,
+        // render_config: PdfRenderConfig,
         max_num_stored_pages: usize,
     ) -> Self {
         PageCache {
             document,
-            render_config,
+            // render_config,
             max_num_stored_pages,
             pages: BTreeMap::new(),
         }
     }
 
-    pub fn get_page(&self, page_number: usize) -> Option<Arc<Texture>> {
+    pub fn get_page(&self, page_number: usize) -> Option<Arc<MyPageType>> {
         self.pages.get(&page_number).map(Arc::clone)
     }
 
     pub fn cache_pages(&mut self, page_numbers: Vec<usize>) {
+        println!("Caching pages {:?}", page_numbers);
         for page_number in page_numbers {
             if self.pages.contains_key(&page_number) {
                 continue;
             }
 
-            let page = self.document.pages().get(page_number as u16).unwrap();
-            let image = page.render_with_config(&self.render_config).unwrap();
+            // let page = self.document.pages().get(page_number as u16).unwrap();
+            // let image = page.render_with_config(&self.render_config).unwrap();
 
-            // TODO: does this clone?
-            let bytes = Bytes::from(image.as_bytes());
-            let page = Texture::from_bytes(&bytes).unwrap();
-            // let page = self.document.page(page_number as i32);
-            self.pages.insert(page_number, Arc::new(page));
+            // // TODO: does this clone?
+            // let bytes = Bytes::from(image.as_bytes());
+            // let page = Texture::from_bytes(&bytes).unwrap();
+            if let Some(page) = self.document.page(page_number as i32) {
+                // let image = Picture::new();
 
-            if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
-                let _result = self.remove_most_distant_page(page_number);
+                // // poppler.rend
+                // let surface = ImageSurface::create(Format::Rgb24, 10, 10).unwrap();
+                // let context = Context::new(&surface).unwrap();
+
+                // page.render(&context);
+                // context.paint().expect("Could not paint");
+                // println!("Surface: {:?}", surface);
+                // let page = surface;
+                // let page = surface.take_data().unwrap();
+                // context.draw
+                self.pages.insert(page_number, Arc::new(page));
+
+                if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
+                    let _result = self.remove_most_distant_page(page_number);
+                }
             }
         }
+        println!("done caching");
     }
 
     fn remove_most_distant_page(&mut self, current_page_number: usize) -> Result<(), ()> {
@@ -72,30 +90,34 @@ impl<'a> PageCache<'a> {
         Ok(())
     }
 
-    fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
+    async fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
+        println!("Processing command: {:?}...", command);
         match command {
             CacheCommand::CachePages { pages } => {
                 self.cache_pages(pages);
                 None
             }
             CacheCommand::GetCurrentTwoPages { page_left_number } => {
-                let page_left = self
-                    .get_page(page_left_number)
-                    .expect("Requested page was not cached!!!");
-
-                if let Some(page_right) = self.get_page(page_left_number + 1) {
-                    Some(CacheResponse::TwoPagesLoaded {
-                        page_left,
-                        page_right,
-                    })
+                if let Some(page_left) = self.get_page(page_left_number) {
+                    if let Some(page_right) = self.get_page(page_left_number + 1) {
+                        Some(CacheResponse::TwoPagesLoaded {
+                            page_left,
+                            page_right,
+                        })
+                    } else {
+                        Some(CacheResponse::SinglePageLoaded { page: page_left })
+                    }
                 } else {
-                    Some(CacheResponse::SinglePageLoaded { page: page_left })
+                    // TODO: if page left was not empty, this could be because page turning was too quick.
+                    // In this case, just not rendering the current page is okay, but when no more render requests are available, one would want to wait for the caching
+                    None
                 }
             }
         }
     }
 }
 
+#[derive(Debug)]
 pub enum CacheCommand {
     CachePages { pages: Vec<PageNumber> },
     GetCurrentTwoPages { page_left_number: PageNumber },
@@ -106,47 +128,52 @@ pub enum CacheResponse {
         num_pages: usize,
     },
     SinglePageLoaded {
-        page: Arc<Texture>,
+        page: Arc<MyPageType>,
     },
     TwoPagesLoaded {
-        page_left: Arc<Texture>,
-        page_right: Arc<Texture>,
+        page_left: Arc<MyPageType>,
+        page_right: Arc<MyPageType>,
     },
 }
 
-pub fn spawn_async_cache(
-    file: impl AsRef<Path>,
-) -> (Sender<CacheCommand>, Receiver<CacheResponse>) {
+pub fn spawn_async_cache<F>(file: impl AsRef<Path>, receiver: F) -> Sender<CacheCommand>
+where
+    F: Fn(CacheResponse) + 'static,
+{
     let (command_sender, command_receiver) = async_channel::unbounded();
-    let (response_sender, response_receiver) = async_channel::unbounded();
+    // let (response_sender, response_receiver) = async_channel::unbounded();
 
     let path: PathBuf = file.as_ref().to_path_buf();
 
-    std::thread::spawn(move || {
+    glib::spawn_future_local(async move {
+        println!("async loading of document:...");
         // Load pdf document here since Document is not thread safe and cannot be passed from main thread
-        let pdfium = Pdfium::default();
+        // let pdfium = Pdfium::default();
 
-        let document = pdfium.load_pdf_from_file(&path, None).unwrap();
-        let render_config = PdfRenderConfig::new()
-            .set_target_width(2000)
-            .set_maximum_height(2000)
-            .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
-        let num_pages = document.pages().iter().count();
+        // let document = pdfium.load_pdf_from_file(&path, None).unwrap();
+        // let render_config = PdfRenderConfig::new()
+        //     .set_target_width(2000)
+        //     .set_maximum_height(2000)
+        //     .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
+        // let num_pages = document.pages().iter().count();
 
-        // let document = poppler::Document::from_file(&uri, None).unwrap();
-        // let num_pages = document.n_pages() as usize;
-        response_sender.send(CacheResponse::DocumentLoaded { num_pages });
+        let uri = format!("file://{}", path.to_str().unwrap());
+        let document = poppler::Document::from_file(&uri, None).unwrap();
+        let num_pages = document.n_pages() as usize;
+        receiver(CacheResponse::DocumentLoaded { num_pages });
 
-        let mut cache = PageCache::new(document, render_config, 10);
+        let mut cache = PageCache::new(document, 10);
 
         loop {
-            if let Ok(command) = command_receiver.recv_blocking() {
+            if let Ok(command) = command_receiver.recv().await {
                 // if !command_receiver.is_empty() {
                 //     // ignore command if more up to date ones are available
                 //     continue;
                 // }
-                if let Some(response) = cache.process_command(command) {
-                    response_sender.send_blocking(response);
+                if let Some(response) = cache.process_command(command).await {
+                    // response_sender.send_blocking(response).unwrap();
+                    println!("Command processed, activating receiver....");
+                    receiver(response);
                 }
             } else {
                 // Sender was closed, cache not needed anymore
@@ -155,5 +182,5 @@ pub fn spawn_async_cache(
         }
     });
 
-    (command_sender, response_receiver)
+    command_sender
 }

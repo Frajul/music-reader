@@ -210,7 +210,7 @@ impl Ui {
 
         ui.borrow().drawing_area.set_draw_func(
             glib::clone!(@weak ui => move |_area, context, w, h| {
-                draw::draw(&ui.borrow().document_canvas, context, w as f64, h as f64);
+                draw::draw(&ui.borrow().document_canvas, context, w, h);
             }),
         );
 

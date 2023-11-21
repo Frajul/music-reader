@@ -12,20 +12,14 @@ pub type MyPageType = Page;
 
 pub struct PageCache {
     document: Document,
-    // render_config: PdfRenderConfig,
     max_num_stored_pages: usize,
     pages: BTreeMap<usize, Arc<MyPageType>>,
 }
 
 impl PageCache {
-    pub fn new(
-        document: Document,
-        // render_config: PdfRenderConfig,
-        max_num_stored_pages: usize,
-    ) -> Self {
+    pub fn new(document: Document, max_num_stored_pages: usize) -> Self {
         PageCache {
             document,
-            // render_config,
             max_num_stored_pages,
             pages: BTreeMap::new(),
         }
@@ -42,25 +36,7 @@ impl PageCache {
                 continue;
             }
 
-            // let page = self.document.pages().get(page_number as u16).unwrap();
-            // let image = page.render_with_config(&self.render_config).unwrap();
-
-            // // TODO: does this clone?
-            // let bytes = Bytes::from(image.as_bytes());
-            // let page = Texture::from_bytes(&bytes).unwrap();
             if let Some(page) = self.document.page(page_number as i32) {
-                // let image = Picture::new();
-
-                // // poppler.rend
-                // let surface = ImageSurface::create(Format::Rgb24, 10, 10).unwrap();
-                // let context = Context::new(&surface).unwrap();
-
-                // page.render(&context);
-                // context.paint().expect("Could not paint");
-                // println!("Surface: {:?}", surface);
-                // let page = surface;
-                // let page = surface.take_data().unwrap();
-                // context.draw
                 self.pages.insert(page_number, Arc::new(page));
 
                 if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
@@ -137,21 +113,11 @@ where
     F: Fn(CacheResponse) + 'static,
 {
     let (command_sender, command_receiver) = async_channel::unbounded();
-    // let (response_sender, response_receiver) = async_channel::unbounded();
 
     let path: PathBuf = file.as_ref().to_path_buf();
 
     glib::spawn_future_local(async move {
         println!("async loading of document:...");
-        // Load pdf document here since Document is not thread safe and cannot be passed from main thread
-        // let pdfium = Pdfium::default();
-
-        // let document = pdfium.load_pdf_from_file(&path, None).unwrap();
-        // let render_config = PdfRenderConfig::new()
-        //     .set_target_width(2000)
-        //     .set_maximum_height(2000)
-        //     .rotate_if_landscape(PdfPageRenderRotation::Degrees90, true);
-        // let num_pages = document.pages().iter().count();
 
         let uri = format!("file://{}", path.to_str().unwrap());
         let document = poppler::Document::from_file(&uri, None).unwrap();

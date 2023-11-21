@@ -202,7 +202,6 @@ impl Ui {
 
         ui.borrow().header_bar.pack_start(&open_file_button);
         app_wrapper.prepend(&ui.borrow().drawing_area);
-        // app_wrapper.prepend(&ui.borrow().picture);
         app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
@@ -220,8 +219,6 @@ impl Ui {
 
         ui.borrow().drawing_area.add_controller(click_left);
         ui.borrow().drawing_area.add_controller(click_right);
-        // ui.borrow().picture.add_controller(click_left);
-        // ui.borrow().picture.add_controller(click_right);
 
         ui.borrow().drawing_area.set_draw_func(
             glib::clone!(@weak ui => move |area, context, _, _| {
@@ -266,7 +263,6 @@ fn choose_file(ui: Rc<RefCell<Ui>>, window: &ApplicationWindow) {
 pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     println!("Loading file...");
     // TODO: catch errors, maybe show error dialog
-    // let uri = format!("file://{}", file.as_ref().to_str().unwrap());
 
     let sender = cache::spawn_async_cache(
         file,
@@ -292,23 +288,6 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     );
 
     println!("Spawned async cache");
-    // // gtk::spawn
-    // glib::spawn_future_local(clone!(@weak ui => async move {
-    //     println!("Waiting for cache response:...");
-    //     while let Ok(cache_response) = receiver.recv().await {
-    //         match cache_response{
-    //             cache::CacheResponse::DocumentLoaded { num_pages } => {ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages); update_page_status(&ui.borrow())},
-    //             cache::CacheResponse::SinglePageLoaded { page } => { ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
-    //             ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
-    // ui.borrow().drawing_area.queue_draw();
-    //             },
-    // cache::CacheResponse::TwoPagesLoaded { page_left, page_right } => { ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page_left);
-    //             ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
-    // ui.borrow().drawing_area.queue_draw();
-    // }
-    //         }
-    //     }
-    // }));
 
     let document_canvas = DocumentCanvas::new(sender);
     document_canvas.cache_initial_pages();

@@ -10,29 +10,12 @@ pub fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
     }
     let document_canvas = ui.document_canvas.as_ref().unwrap();
 
-    // let left_page = document_canvas.left_page.as_ref().unwrap();
-    // let left_page = left_page.as_ref();
-
-    // let data: Vec<u8> = left_page.into_iter().map(|x| x.to_owned()).collect();
-
-    // let data: Vec<u8> = page.iter().map(|x| x.clone()).collect();
-    // let surface = ImageSurface::create_for_data(data, Format::Rgb24, 0, 0, 0).unwrap();
-
-    // context.set_source_surface(surface, 0.0, 0.0);
-    // context.paint();
-
     if document_canvas.num_pages.unwrap_or(0) > 1 {
         draw_two_pages(ui, area, context);
     } else {
         draw_single_page(ui, area, context);
     }
 
-    // gio::spawn_blocking(move || {
-    //     ui.document_canvas
-    //         .as_mut()
-    //         .unwrap()
-    //         .cache_surrounding_pages();
-    // });
     println!("Finished drawing");
     document_canvas.cache_surrounding_pages();
 }
@@ -121,18 +104,8 @@ fn draw_single_page(ui: &Ui, area: &DrawingArea, context: &Context) {
     }
 
     let page = document_canvas.left_page.as_ref().unwrap();
-    // let page = ImageSurface::create_for_data(page.into(), Format::Rgb24, 0, 0, 0).unwrap();
-
-    // context.set_source_surface(page, 0, 0);
-    // Draw background
-    // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    // context.paint().unwrap();
-    // context.fill().expect("uh oh");
-    // context.paint().unwrap();
 
     let (w, h) = page.size();
-    // let w = page.width() as f64;
-    // let h = page.height() as f64;
 
     let width_diff = area.width() as f64 / w;
     let height_diff = area.height() as f64 / h;

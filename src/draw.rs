@@ -1,26 +1,32 @@
 use cairo::Context;
 
-use crate::ui::{DocumentCanvas, Ui};
-use gtk::{prelude::*, DrawingArea};
+use crate::ui::DocumentCanvas;
 
-pub fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
+pub fn draw(
+    document_canvas: &Option<DocumentCanvas>,
+    context: &Context,
+    area_width: f64,
+    area_height: f64,
+) {
     println!("Draw");
-    if ui.document_canvas.is_none() {
-        return;
-    }
-    let document_canvas = ui.document_canvas.as_ref().unwrap();
+    if let Some(document_canvas) = document_canvas {
+        if document_canvas.num_pages.unwrap_or(0) > 1 {
+            draw_two_pages(document_canvas, context, area_width, area_height);
+        } else {
+            draw_single_page(document_canvas, context, area_width, area_height);
+        }
 
-    if document_canvas.num_pages.unwrap_or(0) > 1 {
-        draw_two_pages(document_canvas, area, context);
-    } else {
-        draw_single_page(document_canvas, area, context);
+        println!("Finished drawing");
+        document_canvas.cache_surrounding_pages();
     }
-
-    println!("Finished drawing");
-    document_canvas.cache_surrounding_pages();
 }
 
-fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context: &Context) {
+fn draw_two_pages(
+    document_canvas: &DocumentCanvas,
+    context: &Context,
+    area_width: f64,
+    area_height: f64,
+) {
     let page_left = document_canvas.left_page.as_ref();
     let page_right = document_canvas.right_page.as_ref();
 
@@ -32,11 +38,6 @@ fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context:
     let page_left = page_left.unwrap();
     let page_right = page_right.unwrap();
 
-    // Add white background
-    // context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
-    // context.fill().unwrap();
-    // context.paint().unwrap();
-
     let (w_left, h_left) = page_left.size();
     let (w_right, h_right) = page_right.size();
 
@@ -47,8 +48,8 @@ fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context:
         false => w_left + w_right * h_left / h_right,
     };
 
-    let h_scale = area.height() as f64 / h_max;
-    let w_scale = area.width() as f64 / w_max;
+    let h_scale = area_height / h_max;
+    let w_scale = area_width / w_max;
     let scale = f64::min(h_scale, w_scale);
     let h_page = h_max * scale;
 
@@ -58,8 +59,8 @@ fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context:
     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
     context.save().unwrap();
     context.translate(
-        area.width() as f64 / 2.0 - w_left * scale_left,
-        area.height() as f64 / 2.0 - h_page / 2.0,
+        area_width / 2.0 - w_left * scale_left,
+        area_height / 2.0 - h_page / 2.0,
     );
     // Poppler sometimes crops white border, draw it manually
     context.rectangle(0.0, 0.0, w_left * scale_left, h_page);
@@ -68,10 +69,7 @@ fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context:
     page_left.render(context);
 
     context.restore().unwrap();
-    context.translate(
-        area.width() as f64 / 2.0,
-        area.height() as f64 / 2.0 - h_page / 2.0,
-    );
+    context.translate(area_width / 2.0, area_height / 2.0 - h_page / 2.0);
 
     // Poppler sometimes crops white border, draw it manually
     context.rectangle(0.0, 0.0, w_right * scale_right, h_page);
@@ -80,7 +78,12 @@ fn draw_two_pages(document_canvas: &DocumentCanvas, area: &DrawingArea, context:
     page_right.render(context);
 }
 
-fn draw_single_page(document_canvas: &DocumentCanvas, area: &DrawingArea, context: &Context) {
+fn draw_single_page(
+    document_canvas: &DocumentCanvas,
+    context: &Context,
+    area_width: f64,
+    area_height: f64,
+) {
     if document_canvas.left_page.is_none() {
         // TODO: show error message
         return;
@@ -90,18 +93,18 @@ fn draw_single_page(document_canvas: &DocumentCanvas, area: &DrawingArea, contex
 
     let (w, h) = page.size();
 
-    let width_diff = area.width() as f64 / w;
-    let height_diff = area.height() as f64 / h;
+    let width_diff = area_width / w;
+    let height_diff = area_height / h;
     if width_diff > height_diff {
         context.translate(
-            (area.width() as f64 - w * height_diff) / 2.0,
-            (area.height() as f64 - h * height_diff) / 2.0,
+            (area_width - w * height_diff) / 2.0,
+            (area_height - h * height_diff) / 2.0,
         );
         context.scale(height_diff, height_diff);
     } else {
         context.translate(
-            (area.width() as f64 - w * width_diff) / 2.0,
-            (area.height() as f64 - h * width_diff) / 2.0,
+            (area_width - w * width_diff) / 2.0,
+            (area_height - h * width_diff) / 2.0,
         );
         context.scale(width_diff, width_diff);
     }

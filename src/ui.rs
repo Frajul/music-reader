@@ -209,8 +209,8 @@ impl Ui {
         ui.borrow().drawing_area.add_controller(click_right);
 
         ui.borrow().drawing_area.set_draw_func(
-            glib::clone!(@weak ui => move |area, context, _, _| {
-                draw::draw(&mut ui.borrow_mut(), area, context);
+            glib::clone!(@weak ui => move |_area, context, w, h| {
+                draw::draw(&ui.borrow().document_canvas, context, w as f64, h as f64);
             }),
         );
 

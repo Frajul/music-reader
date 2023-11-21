@@ -1,15 +1,11 @@
-use cairo::{Context, Format, ImageSurface, ImageSurfaceData, ImageSurfaceDataOwned};
-use glib::{clone, Bytes};
-use gtk::{gdk::Texture, Picture};
-use pdfium_render::{pdfium, prelude::*};
 use poppler::{Document, Page};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
-use async_channel::{Receiver, Sender};
+use async_channel::Sender;
 
 type PageNumber = usize;
 pub type MyPageType = Page;

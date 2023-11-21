@@ -1,22 +1,7 @@
-use std::{
-    cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, sync::Arc, thread, time::Duration,
-};
+use cairo::Context;
 
-use async_channel::Sender;
-use cairo::{Context, Format, ImageSurface, ImageSurfaceData, ImageSurfaceDataOwned};
-use gtk::{
-    gdk::Paintable, gio, glib, prelude::*, subclass::drawing_area, Application, ApplicationWindow,
-    Box, Button, DrawingArea, FileChooserAction, FileChooserDialog, HeaderBar, Label, Orientation,
-    Picture, ResponseType,
-};
-use poppler::{Document, Page};
-
-use crate::{
-    cache::{self, CacheCommand, MyPageType, PageCache},
-    ui::Ui,
-};
-use glib::clone;
-use gtk::prelude::*;
+use crate::ui::Ui;
+use gtk::{prelude::*, DrawingArea};
 
 pub fn draw(ui: &mut Ui, area: &DrawingArea, context: &Context) {
     println!("Draw");

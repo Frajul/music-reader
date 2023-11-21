@@ -1,18 +1,14 @@
-use std::{
-    cell::RefCell, collections::BTreeMap, path::Path, rc::Rc, sync::Arc, thread, time::Duration,
-};
+use std::{cell::RefCell, path::Path, rc::Rc, sync::Arc};
 
 use async_channel::Sender;
-use cairo::{Context, Format, ImageSurface, ImageSurfaceData, ImageSurfaceDataOwned};
+use cairo::{Context, Format, ImageSurface};
 use gtk::{
-    gdk::Paintable, gio, glib, prelude::*, subclass::drawing_area, Application, ApplicationWindow,
-    Box, Button, DrawingArea, FileChooserAction, FileChooserDialog, HeaderBar, Label, Orientation,
-    Picture, ResponseType,
+    glib, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
+    FileChooserDialog, HeaderBar, Label, Orientation, ResponseType,
 };
-use poppler::{Document, Page};
 
 use crate::{
-    cache::{self, CacheCommand, MyPageType, PageCache},
+    cache::{self, CacheCommand, MyPageType},
     draw,
 };
 use glib::clone;
@@ -24,7 +20,6 @@ pub struct Ui {
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
     drawing_area: gtk::DrawingArea,
-    picture: Picture,
     pub drawing_context: cairo::Context,
     pub document_canvas: Option<DocumentCanvas>,
 }
@@ -136,7 +131,7 @@ fn update_page_status(ui: &Ui) {
     ui.page_indicator.set_label(page_status.as_str());
 }
 
-fn process_right_click(ui: &mut Ui, x: f64, y: f64) {
+fn process_right_click(ui: &mut Ui, _x: f64, _y: f64) {
     if ui.document_canvas.is_none() {
         return;
     }
@@ -195,12 +190,6 @@ impl Ui {
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
             drawing_area: DrawingArea::builder()
-                .width_request(400)
-                .height_request(300)
-                .hexpand(true)
-                .vexpand(true)
-                .build(),
-            picture: Picture::builder()
                 .width_request(400)
                 .height_request(300)
                 .hexpand(true)

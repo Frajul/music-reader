@@ -1,9 +1,26 @@
 use std::{rc::Rc, time::Instant};
 
-use cairo::Context;
+use cairo::{Context, ImageSurface};
+use glib::Bytes;
+use gtk::{
+    ffi::GtkImage,
+    gdk::{ffi::gdk_pixbuf_get_from_surface, Texture},
+    gdk_pixbuf::Pixbuf,
+};
 use poppler::Page;
 
 use crate::ui::DocumentCanvas;
+
+pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_width: i32, area_height: i32) -> Texture {
+    let surface =
+        ImageSurface::create(cairo::Format::Rgb24, area_width as i32, area_height as i32).unwrap();
+    let context = Context::new(&surface).unwrap();
+    draw_pages(pages, &context, area_width, area_height);
+
+    let mut stream: Vec<u8> = Vec::new();
+    surface.write_to_png(&mut stream).unwrap();
+    Texture::from_bytes(&Bytes::from(&stream)).unwrap()
+}
 
 pub fn draw(
     document_canvas: &Option<DocumentCanvas>,
@@ -17,12 +34,15 @@ pub fn draw(
         if document_canvas.num_pages.unwrap_or(0) > 1 {
             let mut pages = Vec::new();
             if let Some(page_left) = &document_canvas.left_page {
+                // context
+                //     .set_source_surface(page_left.as_ref(), 0.0, 0.0)
+                //     .unwrap();
                 pages.push(Rc::clone(page_left));
             }
             if let Some(page_right) = &document_canvas.right_page {
                 pages.push(Rc::clone(page_right));
             }
-            draw_pages(&pages, context, area_width, area_height);
+            // draw_pages(&pages, context, area_width, area_height);
         }
 
         println!(

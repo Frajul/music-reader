@@ -1,16 +1,19 @@
-use std::{cell::RefCell, path::Path, rc::Rc};
+use std::{cell::RefCell, path::Path, rc::Rc, time::Instant};
 
 use async_channel::Sender;
 use gtk::{
+    ffi::{GtkImage, GtkPicture},
+    gdk::{ffi::gdk_pixbuf_get_from_surface, Texture},
+    gdk_pixbuf::{ffi::GdkPixbuf, Pixbuf},
     glib, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
-    FileChooserDialog, HeaderBar, Label, Orientation, ResponseType,
+    FileChooserDialog, HeaderBar, Image, Label, Orientation, ResponseType,
 };
 
 use crate::{
     cache::{self, CacheCommand, MyPageType},
     draw,
 };
-use glib::clone;
+use glib::{clone, Bytes};
 use gtk::prelude::*;
 
 pub struct Ui {
@@ -18,7 +21,8 @@ pub struct Ui {
     bottom_bar: gtk::Box,
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
-    drawing_area: gtk::DrawingArea,
+    pub drawing_area: gtk::DrawingArea,
+    pub image: Image,
     pub document_canvas: Option<DocumentCanvas>,
 }
 
@@ -178,6 +182,12 @@ impl Ui {
             bottom_bar: Box::builder().hexpand_set(true).build(),
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
+            image: Image::builder()
+                .width_request(400)
+                .height_request(300)
+                .hexpand(true)
+                .vexpand(true)
+                .build(),
             drawing_area: DrawingArea::builder()
                 .width_request(400)
                 .height_request(300)
@@ -189,7 +199,8 @@ impl Ui {
         let ui = Rc::new(RefCell::new(ui));
 
         ui.borrow().header_bar.pack_start(&open_file_button);
-        app_wrapper.prepend(&ui.borrow().drawing_area);
+        // app_wrapper.prepend(&ui.borrow().drawing_area);
+        app_wrapper.prepend(&ui.borrow().image);
         app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
@@ -205,14 +216,21 @@ impl Ui {
         process_right_click(&mut ui.borrow_mut(), x, y);
              }));
 
-        ui.borrow().drawing_area.add_controller(click_left);
-        ui.borrow().drawing_area.add_controller(click_right);
+        // ui.borrow().drawing_area.add_controller(click_left);
+        // ui.borrow().drawing_area.add_controller(click_right);
+        ui.borrow().image.add_controller(click_left);
+        ui.borrow().image.add_controller(click_right);
 
-        ui.borrow().drawing_area.set_draw_func(
-            glib::clone!(@weak ui => move |_area, context, w, h| {
-                draw::draw(&ui.borrow().document_canvas, context, w, h);
-            }),
-        );
+        // ui.borrow().drawing_area.set_draw_func(
+        //     glib::clone!(@weak ui => move |_area, context, w, h| {
+        //         draw::draw(&ui.borrow().document_canvas, context, w, h);
+        //     }),
+        // );
+        // ui.borrow().image.connect_paintable_notify(
+        //     glib::clone!(@weak ui => @default-panic, move |_| {
+        //         ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages();
+        //     }),
+        // );
 
         ui.borrow()
             .window
@@ -255,23 +273,37 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     let sender = cache::spawn_async_cache(
         file,
         clone!(@weak ui => move |cache_response| match cache_response {
-            cache::CacheResponse::DocumentLoaded { num_pages } => {
-                ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages);
-                update_page_status(&ui.borrow())
-            }
-            cache::CacheResponse::SinglePageRetrieved { page } => {
-                ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
-                ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
-                ui.borrow().drawing_area.queue_draw();
-            }
-            cache::CacheResponse::TwoPagesRetrieved {
-                page_left,
-                page_right,
-            } => {
-                ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page_left);
-                ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
-                ui.borrow().drawing_area.queue_draw();
-            }
+                cache::CacheResponse::DocumentLoaded { num_pages } => {
+                    ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages);
+                    update_page_status(&ui.borrow())
+                }
+                cache::CacheResponse::SinglePageRetrieved { page } => {
+                    ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
+                    ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
+                    ui.borrow().drawing_area.queue_draw();
+                }
+                cache::CacheResponse::TwoPagesRetrieved {
+                    page_left,
+                    page_right,
+                } => {
+                    ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(Rc::clone(&page_left));
+                    ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
+                    // unsafe{
+                    //     let x = Pixbuf::new();
+                    // gdk_pixbuf_get_from_surface(page_left, 0, 0, page_left.width(), page_left.height());
+                    // }
+                    // ui.borrow_mut().image.bitstre
+                    // ui.borrow().drawing_area.queue_draw();
+                    println!("New Draw");
+                    let begin_of_drawing = Instant::now();
+                    ui.borrow_mut().image.set_from_paintable(Some(page_left.as_ref()));
+                    ui.borrow().image.queue_draw();
+                    println!(
+                        "Finished new drawing in {}ms",
+                        begin_of_drawing.elapsed().as_millis()
+                    );
+                    ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages();
+                }
         }),
     );
 

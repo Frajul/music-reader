@@ -1,3 +1,5 @@
+use cairo::ImageSurface;
+use gtk::gdk::Texture;
 use poppler::{Document, Page};
 use std::{
     collections::BTreeMap,
@@ -8,8 +10,10 @@ use std::{
 
 use async_channel::Sender;
 
+use crate::draw;
+
 type PageNumber = usize;
-pub type MyPageType = Page;
+pub type MyPageType = Texture;
 
 pub struct PageCache {
     document: Document,
@@ -39,7 +43,10 @@ impl PageCache {
             }
 
             if let Some(page) = self.document.page(page_number as i32) {
-                self.pages.insert(page_number, Rc::new(page));
+                let pages = vec![Rc::new(page)];
+                let texture = draw::draw_pages_to_texture(&pages, 500, 500);
+
+                self.pages.insert(page_number, Rc::new(texture));
 
                 if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
                     let _result = self.remove_most_distant_page(page_number);
@@ -76,7 +83,9 @@ impl PageCache {
             }
             CacheCommand::GetCurrentTwoPages { page_left_number } => {
                 if let Some(page_left) = self.get_page(page_left_number) {
+                    println!("got left page");
                     if let Some(page_right) = self.get_page(page_left_number + 1) {
+                        println!("got right page");
                         Some(CacheResponse::TwoPagesRetrieved {
                             page_left,
                             page_right,
@@ -85,6 +94,7 @@ impl PageCache {
                         Some(CacheResponse::SinglePageRetrieved { page: page_left })
                     }
                 } else {
+                    println!("did not get any page");
                     // TODO: if page left was not empty, this could be because page turning was too quick.
                     // In this case, just not rendering the current page is okay, but when no more render requests are available, one would want to wait for the caching
                     None
@@ -140,6 +150,7 @@ where
                 // response_sender.send_blocking(response).unwrap();
                 println!("Command processed, activating receiver....");
                 receiver(response);
+                println!("receiver done");
             }
         }
     });

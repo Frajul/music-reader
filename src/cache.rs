@@ -1,11 +1,12 @@
 use cairo::ImageSurface;
+use glib::{timeout_future, timeout_future_seconds, ControlFlow};
 use gtk::gdk::Texture;
 use poppler::{Document, Page};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     rc::Rc,
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use async_channel::Sender;
@@ -34,7 +35,7 @@ impl PageCache {
         self.pages.get(&page_number).map(Rc::clone)
     }
 
-    pub fn cache_pages(&mut self, page_numbers: Vec<usize>) {
+    pub fn cache_pages(&mut self, page_numbers: Vec<usize>, area_height: i32) {
         println!("Caching pages {:?}", page_numbers);
         let begin_of_cashing = Instant::now();
         for page_number in page_numbers {
@@ -44,7 +45,7 @@ impl PageCache {
 
             if let Some(page) = self.document.page(page_number as i32) {
                 let pages = vec![Rc::new(page)];
-                let texture = draw::draw_pages_to_texture(&pages, 500, 500);
+                let texture = draw::draw_pages_to_texture(&pages, area_height);
 
                 self.pages.insert(page_number, Rc::new(texture));
 
@@ -74,11 +75,11 @@ impl PageCache {
         Ok(())
     }
 
-    async fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
+    fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
         println!("Processing command: {:?}...", command);
         match command {
-            CacheCommand::CachePages { pages } => {
-                self.cache_pages(pages);
+            CacheCommand::CachePages { pages, area_height } => {
+                self.cache_pages(pages, area_height);
                 None
             }
             CacheCommand::GetCurrentTwoPages { page_left_number } => {
@@ -106,14 +107,16 @@ impl PageCache {
 
 #[derive(Debug)]
 pub enum CacheCommand {
-    CachePages { pages: Vec<PageNumber> },
-    GetCurrentTwoPages { page_left_number: PageNumber },
+    CachePages {
+        pages: Vec<PageNumber>,
+        area_height: i32,
+    },
+    GetCurrentTwoPages {
+        page_left_number: PageNumber,
+    },
 }
 
 pub enum CacheResponse {
-    DocumentLoaded {
-        num_pages: usize,
-    },
     SinglePageRetrieved {
         page: Rc<MyPageType>,
     },
@@ -123,35 +126,25 @@ pub enum CacheResponse {
     },
 }
 
-pub fn spawn_async_cache<F>(file: impl AsRef<Path>, receiver: F) -> Sender<CacheCommand>
+pub fn spawn_async_cache<F>(document: Document, receiver: F) -> Sender<CacheCommand>
 where
     F: Fn(CacheResponse) + 'static,
 {
     let (command_sender, command_receiver) = async_channel::unbounded();
 
-    let path: PathBuf = file.as_ref().to_path_buf();
+    let mut cache = PageCache::new(document, 10);
 
     glib::spawn_future_local(async move {
-        println!("async loading of document:...");
-
-        let uri = format!("file://{}", path.to_str().unwrap());
-        let document = poppler::Document::from_file(&uri, None).unwrap();
-        let num_pages = document.n_pages() as usize;
-        receiver(CacheResponse::DocumentLoaded { num_pages });
-
-        let mut cache = PageCache::new(document, 10);
-
         while let Ok(command) = command_receiver.recv().await {
-            // if !command_receiver.is_empty() {
-            //     // ignore command if more up to date ones are available
-            //     continue;
-            // }
-            if let Some(response) = cache.process_command(command).await {
+            if let Some(response) = cache.process_command(command) {
                 // response_sender.send_blocking(response).unwrap();
                 println!("Command processed, activating receiver....");
                 receiver(response);
                 println!("receiver done");
             }
+
+            // Add delay to tell gtk to give rendering priority
+            timeout_future(Duration::from_millis(1)).await;
         }
     });
 

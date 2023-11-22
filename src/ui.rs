@@ -1,4 +1,9 @@
-use std::{cell::RefCell, path::Path, rc::Rc, time::Instant};
+use std::{
+    cell::RefCell,
+    path::{Path, PathBuf},
+    rc::Rc,
+    time::Instant,
+};
 
 use async_channel::Sender;
 use gtk::{
@@ -6,7 +11,7 @@ use gtk::{
     gdk::{ffi::gdk_pixbuf_get_from_surface, Texture},
     gdk_pixbuf::{ffi::GdkPixbuf, Pixbuf},
     glib, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
-    FileChooserDialog, HeaderBar, Image, Label, Orientation, ResponseType,
+    FileChooserDialog, HeaderBar, Image, Label, Orientation, Picture, ResponseType,
 };
 
 use crate::{
@@ -21,8 +26,9 @@ pub struct Ui {
     bottom_bar: gtk::Box,
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
-    pub drawing_area: gtk::DrawingArea,
-    pub image: Image,
+    pub image_container: Box,
+    pub image_left: Picture,
+    pub image_right: Picture,
     pub document_canvas: Option<DocumentCanvas>,
 }
 
@@ -30,8 +36,6 @@ pub struct DocumentCanvas {
     current_page_number: usize,
     pub num_pages: Option<usize>,
     page_cache_sender: Sender<CacheCommand>,
-    pub left_page: Option<Rc<MyPageType>>,
-    pub right_page: Option<Rc<MyPageType>>,
 }
 
 impl DocumentCanvas {
@@ -40,8 +44,6 @@ impl DocumentCanvas {
             current_page_number: 0,
             num_pages: None,
             page_cache_sender,
-            left_page: None,
-            right_page: None,
         }
     }
 
@@ -57,15 +59,17 @@ impl DocumentCanvas {
         self.current_page_number = self.current_page_number.saturating_sub(1);
     }
 
-    pub fn cache_initial_pages(&self) {
+    pub fn cache_initial_pages(&self, area_height: i32) {
         self.page_cache_sender
             .send_blocking(CacheCommand::CachePages {
                 pages: vec![self.current_page_number, self.current_page_number + 1],
+                area_height,
             })
             .unwrap();
     }
 
-    pub fn cache_surrounding_pages(&self) {
+    pub fn cache_surrounding_pages(&self, area_height: i32) {
+        println!("Send cache request");
         self.page_cache_sender
             .send_blocking(CacheCommand::CachePages {
                 pages: vec![
@@ -76,6 +80,7 @@ impl DocumentCanvas {
                     self.current_page_number + 2,
                     self.current_page_number + 3,
                 ],
+                area_height,
             })
             .unwrap();
     }
@@ -143,18 +148,18 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
         return;
     }
 
-    let center = ui.drawing_area.width() / 2;
-    if y < (ui.drawing_area.height() / 5) as f64 {
+    let center = ui.image_container.width() / 2;
+    if y < (ui.image_container.height() / 5) as f64 {
         toggle_fullscreen(ui);
     } else if x > center as f64 {
-        if x < ui.drawing_area.width() as f64 * 0.75 {
+        if x < ui.image_container.width() as f64 * 0.75 {
             ui.document_canvas.as_mut().unwrap().increase_page_number();
         } else {
             ui.document_canvas.as_mut().unwrap().increase_page_number();
             ui.document_canvas.as_mut().unwrap().increase_page_number();
         }
     } else if x < center as f64 {
-        if x > ui.drawing_area.width() as f64 * 0.25 {
+        if x > ui.image_container.width() as f64 * 0.25 {
             ui.document_canvas.as_mut().unwrap().decrease_page_number();
         } else {
             ui.document_canvas.as_mut().unwrap().decrease_page_number();
@@ -175,32 +180,48 @@ impl Ui {
             .title("Music Reader")
             .child(&app_wrapper)
             .maximized(true)
+            .width_request(600)
+            .height_request(400)
             .build();
+
+        let image_container = Box::builder()
+            .spacing(0)
+            // .width_request(600)
+            // .height_request(300)
+            .vexpand(true)
+            .hexpand(true)
+            .halign(gtk::Align::Center)
+            .build();
+        let image_left = Picture::builder()
+            // .width_request(300)
+            // .height_request(300)
+            .vexpand(true)
+            // .hexpand(true)
+            .build();
+        let image_right = Picture::builder()
+            // .width_request(300)
+            // .height_request(300)
+            .vexpand(true)
+            // .hexpand(true)
+            .build();
+        image_container.append(&image_left);
+        image_container.append(&image_right);
 
         let ui = Ui {
             window,
             bottom_bar: Box::builder().hexpand_set(true).build(),
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
-            image: Image::builder()
-                .width_request(400)
-                .height_request(300)
-                .hexpand(true)
-                .vexpand(true)
-                .build(),
-            drawing_area: DrawingArea::builder()
-                .width_request(400)
-                .height_request(300)
-                .hexpand(true)
-                .vexpand(true)
-                .build(),
+            image_container,
+            image_left,
+            image_right,
             document_canvas: None,
         };
         let ui = Rc::new(RefCell::new(ui));
 
         ui.borrow().header_bar.pack_start(&open_file_button);
         // app_wrapper.prepend(&ui.borrow().drawing_area);
-        app_wrapper.prepend(&ui.borrow().image);
+        app_wrapper.prepend(&ui.borrow().image_container);
         app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
@@ -216,21 +237,8 @@ impl Ui {
         process_right_click(&mut ui.borrow_mut(), x, y);
              }));
 
-        // ui.borrow().drawing_area.add_controller(click_left);
-        // ui.borrow().drawing_area.add_controller(click_right);
-        ui.borrow().image.add_controller(click_left);
-        ui.borrow().image.add_controller(click_right);
-
-        // ui.borrow().drawing_area.set_draw_func(
-        //     glib::clone!(@weak ui => move |_area, context, w, h| {
-        //         draw::draw(&ui.borrow().document_canvas, context, w, h);
-        //     }),
-        // );
-        // ui.borrow().image.connect_paintable_notify(
-        //     glib::clone!(@weak ui => @default-panic, move |_| {
-        //         ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages();
-        //     }),
-        // );
+        ui.borrow().image_container.add_controller(click_left);
+        ui.borrow().image_container.add_controller(click_right);
 
         ui.borrow()
             .window
@@ -269,48 +277,38 @@ fn choose_file(ui: Rc<RefCell<Ui>>, window: &ApplicationWindow) {
 pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     println!("Loading file...");
     // TODO: catch errors, maybe show error dialog
+    let path: PathBuf = file.as_ref().to_path_buf();
+    let uri = format!("file://{}", path.to_str().unwrap());
+    let document = poppler::Document::from_file(&uri, None).unwrap();
+    let num_pages = document.n_pages() as usize;
 
     let sender = cache::spawn_async_cache(
-        file,
+        document,
         clone!(@weak ui => move |cache_response| match cache_response {
-                cache::CacheResponse::DocumentLoaded { num_pages } => {
-                    ui.borrow_mut().document_canvas.as_mut().unwrap().num_pages = Some(num_pages);
-                    update_page_status(&ui.borrow())
-                }
                 cache::CacheResponse::SinglePageRetrieved { page } => {
-                    ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(page);
-                    ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = None;
-                    ui.borrow().drawing_area.queue_draw();
+                    ui.borrow_mut().image_left.set_paintable(Some(page.as_ref()));
+                    ui.borrow_mut().image_right.set_visible(false);
+                    let area_height = ui.borrow().image_left.height();
+                    ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
                 }
                 cache::CacheResponse::TwoPagesRetrieved {
                     page_left,
                     page_right,
                 } => {
-                    ui.borrow_mut().document_canvas.as_mut().unwrap().left_page = Some(Rc::clone(&page_left));
-                    ui.borrow_mut().document_canvas.as_mut().unwrap().right_page = Some(page_right);
-                    // unsafe{
-                    //     let x = Pixbuf::new();
-                    // gdk_pixbuf_get_from_surface(page_left, 0, 0, page_left.width(), page_left.height());
-                    // }
-                    // ui.borrow_mut().image.bitstre
-                    // ui.borrow().drawing_area.queue_draw();
-                    println!("New Draw");
-                    let begin_of_drawing = Instant::now();
-                    ui.borrow_mut().image.set_from_paintable(Some(page_left.as_ref()));
-                    ui.borrow().image.queue_draw();
-                    println!(
-                        "Finished new drawing in {}ms",
-                        begin_of_drawing.elapsed().as_millis()
-                    );
-                    ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages();
+                    ui.borrow_mut().image_left.set_paintable(Some(page_left.as_ref()));
+                    ui.borrow_mut().image_right.set_paintable(Some(page_right.as_ref()));
+                    ui.borrow_mut().image_right.set_visible(true);
+                    let area_height = ui.borrow().image_left.height();
+                    ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
+                    println!("Image size: {}, {}", ui.borrow().image_left.width(), ui.borrow().image_left.height());
                 }
         }),
     );
 
-    println!("Spawned async cache");
+    let mut document_canvas = DocumentCanvas::new(sender);
+    document_canvas.num_pages = Some(num_pages);
+    document_canvas.cache_initial_pages(ui.borrow().image_left.height());
 
-    let document_canvas = DocumentCanvas::new(sender);
-    document_canvas.cache_initial_pages();
     ui.borrow_mut().document_canvas = Some(document_canvas);
 
     update_page_status(&ui.borrow());

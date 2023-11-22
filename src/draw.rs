@@ -9,48 +9,22 @@ use gtk::{
 };
 use poppler::Page;
 
-use crate::ui::DocumentCanvas;
+pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_height: i32) -> Texture {
+    let area_height = i32::max(400, area_height);
+    let total_width_normalized: f64 = pages
+        .iter()
+        .map(|page| page.size())
+        .map(|(w, h)| w / h)
+        .sum();
+    let area_width = (total_width_normalized * area_height as f64 + 0.5) as i32;
 
-pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_width: i32, area_height: i32) -> Texture {
-    let surface =
-        ImageSurface::create(cairo::Format::Rgb24, area_width as i32, area_height as i32).unwrap();
+    let surface = ImageSurface::create(cairo::Format::Rgb24, area_width, area_height).unwrap();
     let context = Context::new(&surface).unwrap();
     draw_pages(pages, &context, area_width, area_height);
 
     let mut stream: Vec<u8> = Vec::new();
     surface.write_to_png(&mut stream).unwrap();
     Texture::from_bytes(&Bytes::from(&stream)).unwrap()
-}
-
-pub fn draw(
-    document_canvas: &Option<DocumentCanvas>,
-    context: &Context,
-    area_width: i32,
-    area_height: i32,
-) {
-    println!("Draw");
-    if let Some(document_canvas) = document_canvas {
-        let begin_of_drawing = Instant::now();
-        if document_canvas.num_pages.unwrap_or(0) > 1 {
-            let mut pages = Vec::new();
-            if let Some(page_left) = &document_canvas.left_page {
-                // context
-                //     .set_source_surface(page_left.as_ref(), 0.0, 0.0)
-                //     .unwrap();
-                pages.push(Rc::clone(page_left));
-            }
-            if let Some(page_right) = &document_canvas.right_page {
-                pages.push(Rc::clone(page_right));
-            }
-            // draw_pages(&pages, context, area_width, area_height);
-        }
-
-        println!(
-            "Finished drawing in {}ms",
-            begin_of_drawing.elapsed().as_millis()
-        );
-        document_canvas.cache_surrounding_pages();
-    }
 }
 
 fn draw_pages(pages: &[Rc<Page>], context: &Context, area_width: i32, area_height: i32) {
@@ -66,7 +40,8 @@ fn draw_pages(pages: &[Rc<Page>], context: &Context, area_width: i32, area_heigh
         .map(|page| page.size())
         .map(|(w, h)| w / h)
         .sum();
-    let height_to_scale_to = f64::min(area_width / total_width_normalized, area_height);
+    // let height_to_scale_to = f64::min(area_width / total_width_normalized, area_height);
+    let height_to_scale_to = area_height;
     let total_width = total_width_normalized * height_to_scale_to;
 
     context.set_source_rgba(1.0, 1.0, 1.0, 1.0);
@@ -80,6 +55,11 @@ fn draw_pages(pages: &[Rc<Page>], context: &Context, area_width: i32, area_heigh
         let (page_width, page_height) = page.size();
         let scale = height_to_scale_to / page_height;
         let scaled_width = page_width * scale;
+
+        println!(
+            "drawing with size: {}, {}",
+            scaled_width, height_to_scale_to
+        );
 
         // context.translate(total_width_of_rendered_pages, 0.0);
         // Poppler sometimes crops white border, draw it manually

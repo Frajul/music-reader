@@ -294,7 +294,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                 cache::CacheResponse::SinglePageRetrieved { page } => {
                     ui.borrow_mut().image_left.set_paintable(Some(page.as_ref()));
                     ui.borrow_mut().image_right.set_visible(false);
-                    let area_height = ui.borrow().image_left.height();
+                    let area_height = ui.borrow().image_container.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
                 }
                 cache::CacheResponse::TwoPagesRetrieved {
@@ -304,7 +304,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                     ui.borrow_mut().image_left.set_paintable(Some(page_left.as_ref()));
                     ui.borrow_mut().image_right.set_paintable(Some(page_right.as_ref()));
                     ui.borrow_mut().image_right.set_visible(true);
-                    let area_height = ui.borrow().image_left.height();
+                    let area_height = ui.borrow().image_container.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
                 },
             cache::CacheResponse::PageResolutionUpgraded { page_number, page } => {
@@ -319,7 +319,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
 
     let mut document_canvas = DocumentCanvas::new(sender);
     document_canvas.num_pages = Some(num_pages);
-    document_canvas.cache_initial_pages(ui.borrow().image_left.height());
+    document_canvas.cache_initial_pages(ui.borrow().image_container.height());
 
     ui.borrow_mut().document_canvas = Some(document_canvas);
 

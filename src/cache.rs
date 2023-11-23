@@ -253,6 +253,9 @@ where
     // Besides the name, it is not in another thread
     glib::spawn_future_local(async move {
         while command_receiver.is_channel_open() {
+            // Add delay to tell gtk to give rendering priority
+            timeout_future(Duration::from_millis(1)).await;
+
             if let Some(command) = command_receiver.receive_most_important_command() {
                 if let Some(response) = cache.process_command(command).unwrap_or_else(|e| {
                     error!("Error processing command: {}", e);
@@ -264,9 +267,6 @@ where
                     debug!("receiver done");
                 }
             }
-
-            // Add delay to tell gtk to give rendering priority
-            timeout_future(Duration::from_millis(1)).await;
         }
     });
 

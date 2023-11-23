@@ -3,6 +3,7 @@ use std::rc::Rc;
 use cairo::{Context, ImageSurface};
 use glib::Bytes;
 use gtk::gdk::Texture;
+use log::debug;
 use poppler::Page;
 
 pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_height: i32) -> Texture {
@@ -52,7 +53,7 @@ fn draw_pages(pages: &[Rc<Page>], context: &Context, area_width: i32, area_heigh
         let scale = height_to_scale_to / page_height;
         let scaled_width = page_width * scale;
 
-        println!(
+        debug!(
             "drawing with size: {}, {}",
             scaled_width, height_to_scale_to
         );

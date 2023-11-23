@@ -3,8 +3,10 @@ mod draw;
 mod ui;
 
 use clap::Parser;
+use env_logger::Env;
 use gtk::prelude::*;
 use gtk::Application;
+use log::debug;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -19,8 +21,9 @@ struct Cli {
 }
 
 fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("debug")).init();
     let cli = Cli::parse();
-    println!("Parse args");
+    debug!("Parse args");
     let app = Application::builder().application_id(APP_ID).build();
 
     app.connect_activate(move |app| {

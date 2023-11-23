@@ -9,6 +9,7 @@ use gtk::{
     glib, Application, ApplicationWindow, Box, Button, FileChooserAction, FileChooserDialog,
     HeaderBar, Label, Orientation, Picture, ResponseType,
 };
+use log::debug;
 
 use crate::cache::{self, CacheCommand};
 use glib::clone;
@@ -62,7 +63,7 @@ impl DocumentCanvas {
     }
 
     pub fn cache_surrounding_pages(&self, area_height: i32) {
-        println!("Send cache request");
+        debug!("Send cache request");
         self.page_cache_sender
             .send_blocking(CacheCommand::CachePages {
                 pages: vec![
@@ -164,7 +165,7 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
 
 impl Ui {
     pub fn build(app: &Application) -> Rc<RefCell<Ui>> {
-        println!("building ui");
+        debug!("building ui");
         let open_file_button = Button::from_icon_name("document-open");
 
         let app_wrapper = Box::builder().orientation(Orientation::Vertical).build();
@@ -268,7 +269,7 @@ fn choose_file(ui: Rc<RefCell<Ui>>, window: &ApplicationWindow) {
 }
 
 pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
-    println!("Loading file...");
+    debug!("Loading file...");
     // TODO: catch errors, maybe show error dialog
     let path: PathBuf = file.as_ref().to_path_buf();
     let uri = format!("file://{}", path.to_str().unwrap());
@@ -293,7 +294,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                     ui.borrow_mut().image_right.set_visible(true);
                     let area_height = ui.borrow().image_left.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
-                    println!("Image size: {}, {}", ui.borrow().image_left.width(), ui.borrow().image_left.height());
+                    debug!("Image size: {}, {}", ui.borrow().image_left.width(), ui.borrow().image_left.height());
                 }
         }),
     );
@@ -305,5 +306,5 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     ui.borrow_mut().document_canvas = Some(document_canvas);
 
     update_page_status(&ui.borrow());
-    println!("finished loading document");
+    debug!("finished loading document");
 }

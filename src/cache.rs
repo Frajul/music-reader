@@ -1,5 +1,6 @@
 use glib::timeout_future;
 use gtk::gdk::Texture;
+use log::debug;
 use poppler::Document;
 use std::{
     collections::BTreeMap,
@@ -34,7 +35,7 @@ impl PageCache {
     }
 
     pub fn cache_pages(&mut self, page_numbers: Vec<usize>, area_height: i32) {
-        println!("Caching pages {:?}", page_numbers);
+        debug!("Caching pages {:?}", page_numbers);
         let begin_of_cashing = Instant::now();
         for page_number in page_numbers {
             if self.pages.contains_key(&page_number) {
@@ -52,7 +53,7 @@ impl PageCache {
                 }
             }
         }
-        println!(
+        debug!(
             "done caching in {}ms",
             begin_of_cashing.elapsed().as_millis()
         );
@@ -74,7 +75,7 @@ impl PageCache {
     }
 
     fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
-        println!("Processing command: {:?}...", command);
+        debug!("Processing command: {:?}...", command);
         match command {
             CacheCommand::CachePages { pages, area_height } => {
                 self.cache_pages(pages, area_height);
@@ -82,9 +83,9 @@ impl PageCache {
             }
             CacheCommand::GetCurrentTwoPages { page_left_number } => {
                 if let Some(page_left) = self.get_page(page_left_number) {
-                    println!("got left page");
+                    debug!("got left page");
                     if let Some(page_right) = self.get_page(page_left_number + 1) {
-                        println!("got right page");
+                        debug!("got right page");
                         Some(CacheResponse::TwoPagesRetrieved {
                             page_left,
                             page_right,
@@ -93,7 +94,7 @@ impl PageCache {
                         Some(CacheResponse::SinglePageRetrieved { page: page_left })
                     }
                 } else {
-                    println!("did not get any page");
+                    debug!("did not get any page");
                     // TODO: if page left was not empty, this could be because page turning was too quick.
                     // In this case, just not rendering the current page is okay, but when no more render requests are available, one would want to wait for the caching
                     None
@@ -136,9 +137,9 @@ where
         while let Ok(command) = command_receiver.recv().await {
             if let Some(response) = cache.process_command(command) {
                 // response_sender.send_blocking(response).unwrap();
-                println!("Command processed, activating receiver....");
+                debug!("Command processed, activating receiver....");
                 receiver(response);
-                println!("receiver done");
+                debug!("receiver done");
             }
 
             // Add delay to tell gtk to give rendering priority

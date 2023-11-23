@@ -1,10 +1,8 @@
-use cairo::ImageSurface;
-use glib::{timeout_future, timeout_future_seconds, ControlFlow};
+use glib::timeout_future;
 use gtk::gdk::Texture;
-use poppler::{Document, Page};
+use poppler::Document;
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
     rc::Rc,
     time::{Duration, Instant},
 };

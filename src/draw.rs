@@ -1,12 +1,8 @@
-use std::{rc::Rc, time::Instant};
+use std::rc::Rc;
 
 use cairo::{Context, ImageSurface};
 use glib::Bytes;
-use gtk::{
-    ffi::GtkImage,
-    gdk::{ffi::gdk_pixbuf_get_from_surface, Texture},
-    gdk_pixbuf::Pixbuf,
-};
+use gtk::gdk::Texture;
 use poppler::Page;
 
 pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_height: i32) -> Texture {

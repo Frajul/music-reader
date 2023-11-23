@@ -2,23 +2,16 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     rc::Rc,
-    time::Instant,
 };
 
 use async_channel::Sender;
 use gtk::{
-    ffi::{GtkImage, GtkPicture},
-    gdk::{ffi::gdk_pixbuf_get_from_surface, Texture},
-    gdk_pixbuf::{ffi::GdkPixbuf, Pixbuf},
-    glib, Application, ApplicationWindow, Box, Button, DrawingArea, FileChooserAction,
-    FileChooserDialog, HeaderBar, Image, Label, Orientation, Picture, ResponseType,
+    glib, Application, ApplicationWindow, Box, Button, FileChooserAction, FileChooserDialog,
+    HeaderBar, Label, Orientation, Picture, ResponseType,
 };
 
-use crate::{
-    cache::{self, CacheCommand, MyPageType},
-    draw,
-};
-use glib::{clone, Bytes};
+use crate::cache::{self, CacheCommand};
+use glib::clone;
 use gtk::prelude::*;
 
 pub struct Ui {

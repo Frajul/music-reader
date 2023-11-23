@@ -20,6 +20,7 @@ pub struct Ui {
     bottom_bar: gtk::Box,
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
+    pub app_wrapper: Box,
     pub image_container: Box,
     pub image_left: Picture,
     pub image_right: Picture,
@@ -142,18 +143,18 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
         return;
     }
 
-    let center = ui.image_container.width() / 2;
-    if y < (ui.image_container.height() / 5) as f64 {
+    let center = ui.app_wrapper.width() / 2;
+    if y < (ui.app_wrapper.height() / 5) as f64 {
         toggle_fullscreen(ui);
     } else if x > center as f64 {
-        if x < ui.image_container.width() as f64 * 0.75 {
+        if x < ui.app_wrapper.width() as f64 * 0.75 {
             ui.document_canvas.as_mut().unwrap().increase_page_number();
         } else {
             ui.document_canvas.as_mut().unwrap().increase_page_number();
             ui.document_canvas.as_mut().unwrap().increase_page_number();
         }
     } else if x < center as f64 {
-        if x > ui.image_container.width() as f64 * 0.25 {
+        if x > ui.app_wrapper.width() as f64 * 0.25 {
             ui.document_canvas.as_mut().unwrap().decrease_page_number();
         } else {
             ui.document_canvas.as_mut().unwrap().decrease_page_number();
@@ -203,6 +204,7 @@ impl Ui {
 
         let ui = Ui {
             window,
+            app_wrapper,
             bottom_bar: Box::builder().hexpand_set(true).build(),
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
@@ -214,9 +216,10 @@ impl Ui {
         let ui = Rc::new(RefCell::new(ui));
 
         ui.borrow().header_bar.pack_start(&open_file_button);
-        // app_wrapper.prepend(&ui.borrow().drawing_area);
-        app_wrapper.prepend(&ui.borrow().image_container);
-        app_wrapper.append(&ui.borrow().bottom_bar);
+        ui.borrow()
+            .app_wrapper
+            .prepend(&ui.borrow().image_container);
+        ui.borrow().app_wrapper.append(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
 
         let click_left = gtk::GestureClick::new();
@@ -231,8 +234,8 @@ impl Ui {
         process_right_click(&mut ui.borrow_mut(), x, y);
              }));
 
-        ui.borrow().image_container.add_controller(click_left);
-        ui.borrow().image_container.add_controller(click_right);
+        ui.borrow().app_wrapper.add_controller(click_left);
+        ui.borrow().app_wrapper.add_controller(click_right);
 
         ui.borrow()
             .window

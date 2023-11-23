@@ -4,14 +4,13 @@ use std::{
     rc::Rc,
 };
 
-use async_channel::Sender;
 use gtk::{
     glib, Application, ApplicationWindow, Box, Button, FileChooserAction, FileChooserDialog,
     HeaderBar, Label, Orientation, Picture, ResponseType,
 };
 use log::debug;
 
-use crate::cache::{self, CacheCommand};
+use crate::cache::{self, SyncCacheCommandSender};
 use glib::clone;
 use gtk::prelude::*;
 
@@ -30,11 +29,11 @@ pub struct Ui {
 pub struct DocumentCanvas {
     current_page_number: usize,
     pub num_pages: Option<usize>,
-    page_cache_sender: Sender<CacheCommand>,
+    page_cache_sender: SyncCacheCommandSender,
 }
 
 impl DocumentCanvas {
-    pub fn new(page_cache_sender: Sender<CacheCommand>) -> Self {
+    pub fn new(page_cache_sender: SyncCacheCommandSender) -> Self {
         DocumentCanvas {
             current_page_number: 0,
             num_pages: None,
@@ -55,37 +54,40 @@ impl DocumentCanvas {
     }
 
     pub fn cache_initial_pages(&self, area_height: i32) {
-        self.page_cache_sender
-            .send_blocking(CacheCommand::CachePages {
-                pages: vec![self.current_page_number, self.current_page_number + 1],
-                area_height,
-            })
-            .unwrap();
+        self.page_cache_sender.send_cache_commands(
+            &vec![self.current_page_number, self.current_page_number + 1],
+            area_height,
+        );
     }
 
     pub fn cache_surrounding_pages(&self, area_height: i32) {
-        debug!("Send cache request");
-        self.page_cache_sender
-            .send_blocking(CacheCommand::CachePages {
-                pages: vec![
-                    self.current_page_number.saturating_sub(2),
-                    self.current_page_number.saturating_sub(1),
-                    self.current_page_number,
-                    self.current_page_number + 1,
-                    self.current_page_number + 2,
-                    self.current_page_number + 3,
-                ],
-                area_height,
-            })
-            .unwrap();
+        self.page_cache_sender.send_cache_commands(
+            &vec![
+                self.current_page_number.saturating_sub(2),
+                self.current_page_number.saturating_sub(1),
+                self.current_page_number,
+                self.current_page_number + 1,
+                self.current_page_number + 2,
+                self.current_page_number + 3,
+            ],
+            area_height,
+        );
     }
 
     pub fn request_to_draw_pages(&self) {
-        self.page_cache_sender
-            .send_blocking(CacheCommand::GetCurrentTwoPages {
-                page_left_number: self.current_page_number,
-            })
-            .unwrap();
+        if self.num_pages == Some(1) {
+            self.page_cache_sender.send_retrieve_command(
+                cache::RetrievePagesCommand::GetCurrentPage {
+                    page_number: self.current_page_number,
+                },
+            )
+        } else {
+            self.page_cache_sender.send_retrieve_command(
+                cache::RetrievePagesCommand::GetCurrentTwoPages {
+                    page_left_number: self.current_page_number,
+                },
+            )
+        }
     }
 }
 
@@ -279,7 +281,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
     let document = poppler::Document::from_file(&uri, None).unwrap();
     let num_pages = document.n_pages() as usize;
 
-    let sender = cache::spawn_async_cache(
+    let sender = cache::spawn_sync_cache(
         document,
         clone!(@weak ui => move |cache_response| match cache_response {
                 cache::CacheResponse::SinglePageRetrieved { page } => {

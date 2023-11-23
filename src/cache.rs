@@ -1,16 +1,15 @@
+use crate::draw;
+use anyhow::{anyhow, bail, Result};
 use glib::timeout_future;
-use gtk::gdk::Texture;
-use log::debug;
+use gtk::{gdk::Texture, prelude::TextureExt};
+use log::{debug, error};
 use poppler::Document;
 use std::{
+    cell::RefCell,
     collections::BTreeMap,
     rc::Rc,
     time::{Duration, Instant},
 };
-
-use async_channel::Sender;
-
-use crate::draw;
 
 type PageNumber = usize;
 pub type MyPageType = Texture;
@@ -19,6 +18,7 @@ pub struct PageCache {
     document: Document,
     max_num_stored_pages: usize,
     pages: BTreeMap<usize, Rc<MyPageType>>,
+    last_requested_page_number: PageNumber,
 }
 
 impl PageCache {
@@ -27,92 +27,131 @@ impl PageCache {
             document,
             max_num_stored_pages,
             pages: BTreeMap::new(),
+            last_requested_page_number: 0,
         }
     }
 
-    pub fn get_page(&self, page_number: usize) -> Option<Rc<MyPageType>> {
+    pub fn get_page(&mut self, page_number: usize) -> Option<Rc<MyPageType>> {
+        self.last_requested_page_number = page_number;
         self.pages.get(&page_number).map(Rc::clone)
     }
 
-    pub fn cache_pages(&mut self, page_numbers: Vec<usize>, area_height: i32) {
-        debug!("Caching pages {:?}", page_numbers);
-        let begin_of_cashing = Instant::now();
-        for page_number in page_numbers {
-            if self.pages.contains_key(&page_number) {
-                continue;
+    pub fn get_page_or_cache(&mut self, page_number: usize) -> Result<Rc<MyPageType>> {
+        if let Some(page) = self.get_page(page_number) {
+            return Ok(page);
+        } else {
+            let _ = self.cache_page(page_number, 100);
+            if let Some(page) = self.get_page(page_number) {
+                return Ok(page);
+            } else {
+                bail!("Failed caching and retrieving page {}", page_number);
             }
+        }
+    }
 
-            if let Some(page) = self.document.page(page_number as i32) {
-                let pages = vec![Rc::new(page)];
-                let texture = draw::draw_pages_to_texture(&pages, area_height);
+    pub fn cache_page(&mut self, page_number: PageNumber, height: i32) -> bool {
+        debug!("Caching page {}", page_number);
+        let begin_of_cashing = Instant::now();
+        if let Some(page) = self.pages.get(&page_number) {
+            if page.height() >= height {
+                debug!("Page already in cache");
+                return false;
+            }
+        }
 
-                self.pages.insert(page_number, Rc::new(texture));
+        if let Some(page) = self.document.page(page_number as i32) {
+            let pages = vec![Rc::new(page)];
+            let texture = draw::draw_pages_to_texture(&pages, height);
 
-                if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
-                    let _result = self.remove_most_distant_page(page_number);
-                }
+            // Overwrite page with lower resolution if exists
+            self.pages.insert(page_number, Rc::new(texture));
+
+            if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
+                let _result = self.remove_most_distant_page();
             }
         }
         debug!(
-            "done caching in {}ms",
+            "done caching of page {} in {}ms",
+            page_number,
             begin_of_cashing.elapsed().as_millis()
         );
+        true
     }
 
-    fn remove_most_distant_page(&mut self, current_page_number: usize) -> Result<(), ()> {
-        let (min_cached_page_number, min_cached_page) = self.pages.pop_first().ok_or(())?;
-        let (max_cached_page_number, max_cached_page) = self.pages.pop_last().ok_or(())?;
+    fn remove_most_distant_page(&mut self) -> anyhow::Result<()> {
+        let (min_cached_page_number, min_cached_page) = self
+            .pages
+            .pop_first()
+            .ok_or(anyhow!("The cache is empty, cannot remove first page"))?;
+        let (max_cached_page_number, max_cached_page) = self
+            .pages
+            .pop_last()
+            .ok_or(anyhow!("The cache is empty, cannot remove last page"))?;
 
-        if current_page_number.abs_diff(min_cached_page_number)
-            > current_page_number.abs_diff(max_cached_page_number)
+        if self
+            .last_requested_page_number
+            .abs_diff(min_cached_page_number)
+            > self
+                .last_requested_page_number
+                .abs_diff(max_cached_page_number)
         {
             self.pages.insert(max_cached_page_number, max_cached_page);
+            debug!(
+                "Removed page {} from cache to keep size low...",
+                min_cached_page_number
+            );
         } else {
             self.pages.insert(min_cached_page_number, min_cached_page);
+            debug!(
+                "Removed page {} from cache to keep size low...",
+                max_cached_page_number
+            );
         }
 
         Ok(())
     }
 
-    fn process_command(&mut self, command: CacheCommand) -> Option<CacheResponse> {
+    fn process_command(&mut self, command: CacheCommand) -> Result<Option<CacheResponse>> {
         debug!("Processing command: {:?}...", command);
         match command {
-            CacheCommand::CachePages { pages, area_height } => {
-                self.cache_pages(pages, area_height);
-                None
+            CacheCommand::Cache(command) => {
+                self.cache_page(command.page, command.height);
+                Ok(None)
             }
-            CacheCommand::GetCurrentTwoPages { page_left_number } => {
-                if let Some(page_left) = self.get_page(page_left_number) {
-                    debug!("got left page");
-                    if let Some(page_right) = self.get_page(page_left_number + 1) {
-                        debug!("got right page");
-                        Some(CacheResponse::TwoPagesRetrieved {
-                            page_left,
-                            page_right,
-                        })
-                    } else {
-                        Some(CacheResponse::SinglePageRetrieved { page: page_left })
-                    }
-                } else {
-                    debug!("did not get any page");
-                    // TODO: if page left was not empty, this could be because page turning was too quick.
-                    // In this case, just not rendering the current page is okay, but when no more render requests are available, one would want to wait for the caching
-                    None
+            CacheCommand::Retrieve(command) => match command {
+                RetrievePagesCommand::GetCurrentTwoPages { page_left_number } => {
+                    let page_left = self.get_page_or_cache(page_left_number)?;
+                    let page_right = self.get_page_or_cache(page_left_number + 1)?;
+                    Ok(Some(CacheResponse::TwoPagesRetrieved {
+                        page_left,
+                        page_right,
+                    }))
                 }
-            }
+                RetrievePagesCommand::GetCurrentPage { page_number } => {
+                    let page = self.get_page_or_cache(page_number)?;
+                    Ok(Some(CacheResponse::SinglePageRetrieved { page }))
+                }
+            },
         }
     }
 }
 
 #[derive(Debug)]
 pub enum CacheCommand {
-    CachePages {
-        pages: Vec<PageNumber>,
-        area_height: i32,
-    },
-    GetCurrentTwoPages {
-        page_left_number: PageNumber,
-    },
+    Cache(CachePageCommand),
+    Retrieve(RetrievePagesCommand),
+}
+
+#[derive(Debug)]
+pub struct CachePageCommand {
+    page: PageNumber,
+    height: i32,
+}
+
+#[derive(Debug)]
+pub enum RetrievePagesCommand {
+    GetCurrentTwoPages { page_left_number: PageNumber },
+    GetCurrentPage { page_number: PageNumber },
 }
 
 pub enum CacheResponse {
@@ -125,21 +164,93 @@ pub enum CacheResponse {
     },
 }
 
-pub fn spawn_async_cache<F>(document: Document, receiver: F) -> Sender<CacheCommand>
+pub struct SyncCacheCommandChannel {
+    retrieve_commands: Vec<RetrievePagesCommand>,
+    cache_commands: Vec<CachePageCommand>,
+}
+
+pub struct SyncCacheCommandSender {
+    channel: Rc<RefCell<SyncCacheCommandChannel>>,
+}
+
+pub struct SyncCacheCommandReceiver {
+    channel: Rc<RefCell<SyncCacheCommandChannel>>,
+}
+
+impl SyncCacheCommandChannel {
+    pub fn open() -> (SyncCacheCommandSender, SyncCacheCommandReceiver) {
+        let channel = SyncCacheCommandChannel {
+            retrieve_commands: Vec::new(),
+            cache_commands: Vec::new(),
+        };
+        let channel = Rc::new(RefCell::new(channel));
+
+        let sender = SyncCacheCommandSender {
+            channel: Rc::clone(&channel),
+        };
+        let receiver = SyncCacheCommandReceiver { channel };
+        (sender, receiver)
+    }
+}
+
+impl SyncCacheCommandSender {
+    pub fn is_channel_open(&self) -> bool {
+        Rc::strong_count(&self.channel) > 1
+    }
+
+    pub fn send_retrieve_command(&self, command: RetrievePagesCommand) {
+        // Make newest message the most important
+        self.channel.borrow_mut().retrieve_commands.push(command);
+    }
+
+    pub fn send_cache_commands(&self, pages: &[PageNumber], height: i32) {
+        for &page in pages {
+            // Make newest message the most important
+            self.channel
+                .borrow_mut()
+                .cache_commands
+                .push(CachePageCommand { page, height });
+        }
+    }
+}
+
+impl SyncCacheCommandReceiver {
+    pub fn is_channel_open(&self) -> bool {
+        Rc::strong_count(&self.channel) > 1
+    }
+
+    pub fn receive_most_important_command(&self) -> Option<CacheCommand> {
+        let mut channel = self.channel.borrow_mut();
+        if let Some(command) = channel.retrieve_commands.pop() {
+            return Some(CacheCommand::Retrieve(command));
+        } else if let Some(command) = channel.cache_commands.pop() {
+            return Some(CacheCommand::Cache(command));
+        }
+        None
+    }
+}
+
+pub fn spawn_sync_cache<F>(document: Document, receiver: F) -> SyncCacheCommandSender
 where
     F: Fn(CacheResponse) + 'static,
 {
-    let (command_sender, command_receiver) = async_channel::unbounded();
+    let (command_sender, command_receiver) = SyncCacheCommandChannel::open();
 
-    let mut cache = PageCache::new(document, 10);
+    let mut cache = PageCache::new(document, 20);
 
+    // Besides the name, it is not in another thread
     glib::spawn_future_local(async move {
-        while let Ok(command) = command_receiver.recv().await {
-            if let Some(response) = cache.process_command(command) {
-                // response_sender.send_blocking(response).unwrap();
-                debug!("Command processed, activating receiver....");
-                receiver(response);
-                debug!("receiver done");
+        while command_receiver.is_channel_open() {
+            if let Some(command) = command_receiver.receive_most_important_command() {
+                if let Some(response) = cache.process_command(command).unwrap_or_else(|e| {
+                    error!("Error processing command: {}", e);
+                    None
+                }) {
+                    // response_sender.send_blocking(response).unwrap();
+                    debug!("Command processed, activating receiver....");
+                    receiver(response);
+                    debug!("receiver done");
+                }
             }
 
             // Add delay to tell gtk to give rendering priority

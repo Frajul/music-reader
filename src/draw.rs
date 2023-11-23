@@ -7,7 +7,7 @@ use log::debug;
 use poppler::Page;
 
 pub fn draw_pages_to_texture(pages: &[Rc<Page>], area_height: i32) -> Texture {
-    let area_height = i32::max(10, area_height);
+    let area_height = i32::max(100, area_height);
     let total_width_normalized: f64 = pages
         .iter()
         .map(|page| page.size())

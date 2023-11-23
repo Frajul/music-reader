@@ -51,6 +51,13 @@ impl PageCache {
 
     pub fn cache_page(&mut self, page_number: PageNumber, height: i32) -> Option<CacheResponse> {
         debug!("Caching page {}", page_number);
+        if page_number.abs_diff(self.last_requested_page_number)
+            > self.max_num_stored_pages.div_ceil(2)
+        {
+            debug!("Page too far from reader, aborting caching call");
+            return None;
+        }
+
         let begin_of_cashing = Instant::now();
         if let Some(page) = self.pages.get(&page_number) {
             if page.height() >= height {
@@ -217,7 +224,7 @@ impl SyncCacheCommandSender {
             self.channel
                 .borrow_mut()
                 .cache_commands
-                .push_front(CachePageCommand { page, height: 10 }); // Cache with lower resolution
+                .push_front(CachePageCommand { page, height: 100 }); // Cache with lower resolution
             self.channel
                 .borrow_mut()
                 .cache_commands
@@ -248,7 +255,7 @@ where
 {
     let (command_sender, command_receiver) = SyncCacheCommandChannel::open();
 
-    let mut cache = PageCache::new(document, 20);
+    let mut cache = PageCache::new(document, 30);
 
     // Besides the name, it is not in another thread
     glib::spawn_future_local(async move {

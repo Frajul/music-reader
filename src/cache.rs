@@ -6,12 +6,12 @@ use log::{debug, error};
 use poppler::Document;
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, VecDeque},
     rc::Rc,
     time::{Duration, Instant},
 };
 
-type PageNumber = usize;
+pub type PageNumber = usize;
 pub type MyPageType = Texture;
 
 pub struct PageCache {
@@ -49,22 +49,29 @@ impl PageCache {
         }
     }
 
-    pub fn cache_page(&mut self, page_number: PageNumber, height: i32) -> bool {
+    pub fn cache_page(&mut self, page_number: PageNumber, height: i32) -> Option<CacheResponse> {
         debug!("Caching page {}", page_number);
         let begin_of_cashing = Instant::now();
         if let Some(page) = self.pages.get(&page_number) {
             if page.height() >= height {
                 debug!("Page already in cache");
-                return false;
+                return None;
             }
         }
+
+        let mut response = None;
 
         if let Some(page) = self.document.page(page_number as i32) {
             let pages = vec![Rc::new(page)];
             let texture = draw::draw_pages_to_texture(&pages, height);
+            let page = Rc::new(texture);
 
             // Overwrite page with lower resolution if exists
-            self.pages.insert(page_number, Rc::new(texture));
+            let previous_page = self.pages.insert(page_number, Rc::clone(&page));
+            let page_resolution_upgraded = previous_page.is_some();
+            if page_resolution_upgraded {
+                response = Some(CacheResponse::PageResolutionUpgraded { page_number, page });
+            }
 
             if self.pages.len() > self.max_num_stored_pages && self.pages.len() > 2 {
                 let _result = self.remove_most_distant_page();
@@ -75,7 +82,7 @@ impl PageCache {
             page_number,
             begin_of_cashing.elapsed().as_millis()
         );
-        true
+        response
     }
 
     fn remove_most_distant_page(&mut self) -> anyhow::Result<()> {
@@ -114,10 +121,7 @@ impl PageCache {
     fn process_command(&mut self, command: CacheCommand) -> Result<Option<CacheResponse>> {
         debug!("Processing command: {:?}...", command);
         match command {
-            CacheCommand::Cache(command) => {
-                self.cache_page(command.page, command.height);
-                Ok(None)
-            }
+            CacheCommand::Cache(command) => Ok(self.cache_page(command.page, command.height)),
             CacheCommand::Retrieve(command) => match command {
                 RetrievePagesCommand::GetCurrentTwoPages { page_left_number } => {
                     let page_left = self.get_page_or_cache(page_left_number)?;
@@ -162,11 +166,15 @@ pub enum CacheResponse {
         page_left: Rc<MyPageType>,
         page_right: Rc<MyPageType>,
     },
+    PageResolutionUpgraded {
+        page_number: PageNumber,
+        page: Rc<MyPageType>,
+    },
 }
 
 pub struct SyncCacheCommandChannel {
     retrieve_commands: Vec<RetrievePagesCommand>,
-    cache_commands: Vec<CachePageCommand>,
+    cache_commands: VecDeque<CachePageCommand>,
 }
 
 pub struct SyncCacheCommandSender {
@@ -181,7 +189,7 @@ impl SyncCacheCommandChannel {
     pub fn open() -> (SyncCacheCommandSender, SyncCacheCommandReceiver) {
         let channel = SyncCacheCommandChannel {
             retrieve_commands: Vec::new(),
-            cache_commands: Vec::new(),
+            cache_commands: VecDeque::new(),
         };
         let channel = Rc::new(RefCell::new(channel));
 
@@ -205,11 +213,15 @@ impl SyncCacheCommandSender {
 
     pub fn send_cache_commands(&self, pages: &[PageNumber], height: i32) {
         for &page in pages {
-            // Make newest message the most important
+            // Make message in front the most important
             self.channel
                 .borrow_mut()
                 .cache_commands
-                .push(CachePageCommand { page, height });
+                .push_front(CachePageCommand { page, height: 10 }); // Cache with lower resolution
+            self.channel
+                .borrow_mut()
+                .cache_commands
+                .push_back(CachePageCommand { page, height });
         }
     }
 }
@@ -223,7 +235,7 @@ impl SyncCacheCommandReceiver {
         let mut channel = self.channel.borrow_mut();
         if let Some(command) = channel.retrieve_commands.pop() {
             return Some(CacheCommand::Retrieve(command));
-        } else if let Some(command) = channel.cache_commands.pop() {
+        } else if let Some(command) = channel.cache_commands.pop_front() {
             return Some(CacheCommand::Cache(command));
         }
         None

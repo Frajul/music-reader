@@ -10,7 +10,7 @@ use gtk::{
 };
 use log::debug;
 
-use crate::cache::{self, SyncCacheCommandSender};
+use crate::cache::{self, PageNumber, SyncCacheCommandSender};
 use glib::clone;
 use gtk::prelude::*;
 
@@ -27,7 +27,7 @@ pub struct Ui {
 }
 
 pub struct DocumentCanvas {
-    current_page_number: usize,
+    pub current_page_number: usize,
     pub num_pages: Option<usize>,
     page_cache_sender: SyncCacheCommandSender,
 }
@@ -88,6 +88,13 @@ impl DocumentCanvas {
                 },
             )
         }
+    }
+
+    pub fn is_left_page(&self, page_number: PageNumber) -> bool {
+        page_number == self.current_page_number
+    }
+    pub fn is_right_page(&self, page_number: PageNumber) -> bool {
+        page_number == self.current_page_number + 1
     }
 }
 
@@ -299,8 +306,14 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                     ui.borrow_mut().image_right.set_visible(true);
                     let area_height = ui.borrow().image_left.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
-                    debug!("Image size: {}, {}", ui.borrow().image_left.width(), ui.borrow().image_left.height());
+                },
+            cache::CacheResponse::PageResolutionUpgraded { page_number, page } => {
+                if ui.borrow().document_canvas.as_ref().unwrap().is_left_page(page_number){
+                    ui.borrow_mut().image_left.set_paintable(Some(page.as_ref()));
+                } else if ui.borrow().document_canvas.as_ref().unwrap().is_right_page(page_number){
+                    ui.borrow_mut().image_right.set_paintable(Some(page.as_ref()));
                 }
+            }
         }),
     );
 

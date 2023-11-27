@@ -104,6 +104,10 @@ pub fn toggle_fullscreen(ui: &Ui) {
             ui.header_bar.hide();
             ui.bottom_bar.hide();
             ui.window.fullscreen();
+            ui.document_canvas
+                .as_ref()
+                .unwrap()
+                .cache_surrounding_pages(ui.image_container.height());
         }
         false => {
             ui.header_bar.show();

@@ -6,7 +6,7 @@ use std::{
 
 use gtk::{
     glib, Application, ApplicationWindow, Box, Button, FileChooserAction, FileChooserDialog,
-    HeaderBar, Label, Orientation, Picture, ResponseType,
+    HeaderBar, Label, Overlay, Picture, ResponseType,
 };
 use log::debug;
 
@@ -19,7 +19,7 @@ pub struct Ui {
     bottom_bar: gtk::Box,
     header_bar: gtk::HeaderBar,
     page_indicator: gtk::Label,
-    pub app_wrapper: Box,
+    pub app_wrapper: Overlay,
     pub image_container: Box,
     pub image_left: Picture,
     pub image_right: Picture,
@@ -178,16 +178,6 @@ impl Ui {
         debug!("building ui");
         let open_file_button = Button::from_icon_name("document-open");
 
-        let app_wrapper = Box::builder().orientation(Orientation::Vertical).build();
-        let window = ApplicationWindow::builder()
-            .application(app)
-            .title("Music Reader")
-            .child(&app_wrapper)
-            .maximized(true)
-            .width_request(600)
-            .height_request(400)
-            .build();
-
         let image_container = Box::builder()
             .spacing(0)
             // .width_request(600)
@@ -211,10 +201,28 @@ impl Ui {
         image_container.append(&image_left);
         image_container.append(&image_right);
 
+        let app_wrapper = Overlay::builder()
+            // .orientation(Orientation::Vertical)
+            .hexpand(true)
+            .vexpand(true)
+            .child(&image_container)
+            .build();
+        let window = ApplicationWindow::builder()
+            .application(app)
+            .title("Music Reader")
+            .child(&app_wrapper)
+            .maximized(true)
+            .width_request(600)
+            .height_request(400)
+            .build();
+
         let ui = Ui {
             window,
             app_wrapper,
-            bottom_bar: Box::builder().hexpand_set(true).build(),
+            bottom_bar: Box::builder()
+                .hexpand_set(true)
+                .valign(gtk::Align::End)
+                .build(),
             header_bar: HeaderBar::builder().build(),
             page_indicator: Label::builder().build(),
             image_container,
@@ -225,11 +233,29 @@ impl Ui {
         let ui = Rc::new(RefCell::new(ui));
 
         ui.borrow().header_bar.pack_start(&open_file_button);
-        ui.borrow()
-            .app_wrapper
-            .prepend(&ui.borrow().image_container);
-        ui.borrow().app_wrapper.append(&ui.borrow().bottom_bar);
+        ui.borrow().app_wrapper.add_overlay(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
+
+        let close_button = Button::builder()
+            .icon_name("window-close")
+            .width_request(10)
+            .height_request(10)
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::Start)
+            .margin_top(5)
+            .margin_end(5)
+            .build();
+
+        let button_click = gtk::GestureClick::new();
+        button_click.set_button(1);
+        button_click.connect_pressed(
+            glib::clone!(@weak ui => @default-panic, move |_, _, _x, _y| {
+               ui.borrow().window.close();
+            }),
+        );
+        close_button.add_controller(button_click);
+
+        ui.borrow().app_wrapper.add_overlay(&close_button);
 
         let click_left = gtk::GestureClick::new();
         click_left.set_button(1);

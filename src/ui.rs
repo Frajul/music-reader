@@ -151,9 +151,14 @@ fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
     if ui.document_canvas.is_none() {
         return;
     }
+    let edge_touch_area_size = f64::min(100.0, ui.app_wrapper.height() as f64 / 10.0);
 
     let center = ui.app_wrapper.width() / 2;
-    if y < (ui.app_wrapper.height() / 5) as f64 {
+    if y < edge_touch_area_size {
+        if x > ui.app_wrapper.width() as f64 - edge_touch_area_size {
+            ui.window.close();
+            return;
+        }
         toggle_fullscreen(ui);
     } else if x > center as f64 {
         if x < ui.app_wrapper.width() as f64 * 0.75 {
@@ -235,27 +240,6 @@ impl Ui {
         ui.borrow().header_bar.pack_start(&open_file_button);
         ui.borrow().app_wrapper.add_overlay(&ui.borrow().bottom_bar);
         ui.borrow().bottom_bar.append(&ui.borrow().page_indicator);
-
-        let close_button = Button::builder()
-            .icon_name("window-close")
-            .width_request(10)
-            .height_request(10)
-            .halign(gtk::Align::End)
-            .valign(gtk::Align::Start)
-            .margin_top(5)
-            .margin_end(5)
-            .build();
-
-        let button_click = gtk::GestureClick::new();
-        button_click.set_button(1);
-        button_click.connect_pressed(
-            glib::clone!(@weak ui => @default-panic, move |_, _, _x, _y| {
-               ui.borrow().window.close();
-            }),
-        );
-        close_button.add_controller(button_click);
-
-        ui.borrow().app_wrapper.add_overlay(&close_button);
 
         let click_left = gtk::GestureClick::new();
         click_left.set_button(1);

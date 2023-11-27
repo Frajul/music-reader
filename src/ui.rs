@@ -54,7 +54,7 @@ impl DocumentCanvas {
     }
 
     pub fn cache_initial_pages(&self, area_height: i32) {
-        self.page_cache_sender.send_cache_commands(
+        self.page_cache_sender.send_priority_cache_commands(
             &vec![self.current_page_number, self.current_page_number + 1],
             area_height,
         );

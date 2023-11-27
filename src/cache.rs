@@ -182,6 +182,7 @@ pub enum CacheResponse {
 pub struct SyncCacheCommandChannel {
     retrieve_commands: Vec<RetrievePagesCommand>,
     cache_commands: VecDeque<CachePageCommand>,
+    priority_cache_commands: Vec<CachePageCommand>,
 }
 
 pub struct SyncCacheCommandSender {
@@ -197,6 +198,7 @@ impl SyncCacheCommandChannel {
         let channel = SyncCacheCommandChannel {
             retrieve_commands: Vec::new(),
             cache_commands: VecDeque::new(),
+            priority_cache_commands: Vec::new(),
         };
         let channel = Rc::new(RefCell::new(channel));
 
@@ -216,6 +218,16 @@ impl SyncCacheCommandSender {
     pub fn send_retrieve_command(&self, command: RetrievePagesCommand) {
         // Make newest message the most important
         self.channel.borrow_mut().retrieve_commands.push(command);
+    }
+
+    pub fn send_priority_cache_commands(&self, pages: &[PageNumber], height: i32) {
+        for &page in pages {
+            // Make message in front the most important
+            self.channel
+                .borrow_mut()
+                .priority_cache_commands
+                .push(CachePageCommand { page, height });
+        }
     }
 
     pub fn send_cache_commands(&self, pages: &[PageNumber], height: i32) {
@@ -240,7 +252,9 @@ impl SyncCacheCommandReceiver {
 
     pub fn receive_most_important_command(&self) -> Option<CacheCommand> {
         let mut channel = self.channel.borrow_mut();
-        if let Some(command) = channel.retrieve_commands.pop() {
+        if let Some(command) = channel.priority_cache_commands.pop() {
+            return Some(CacheCommand::Cache(command));
+        } else if let Some(command) = channel.retrieve_commands.pop() {
             return Some(CacheCommand::Retrieve(command));
         } else if let Some(command) = channel.cache_commands.pop_front() {
             return Some(CacheCommand::Cache(command));

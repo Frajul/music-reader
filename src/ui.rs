@@ -44,7 +44,7 @@ impl DocumentCanvas {
     }
 
     pub fn increase_page_number(&mut self) {
-        if self.current_page_number >= self.num_pages.unwrap_or(0).saturating_sub(2) {
+        if self.current_page_number >= self.num_pages.unwrap_or(0).saturating_sub(1) {
             return;
         }
 
@@ -64,12 +64,14 @@ impl DocumentCanvas {
 
     pub fn cache_surrounding_pages(&self, area_height: i32) {
         self.page_cache_sender.send_cache_commands(
-            &[self.current_page_number.saturating_sub(2),
+            &[
+                self.current_page_number.saturating_sub(2),
                 self.current_page_number.saturating_sub(1),
                 self.current_page_number,
                 self.current_page_number + 1,
                 self.current_page_number + 2,
-                self.current_page_number + 3],
+                self.current_page_number + 3,
+            ],
             area_height,
         );
     }
@@ -316,7 +318,13 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
         clone!(@weak ui => move |cache_response| match cache_response {
                 cache::CacheResponse::SinglePageRetrieved { page } => {
                     ui.borrow_mut().image_left.set_paintable(Some(page.as_ref()));
-                    ui.borrow_mut().image_right.set_visible(false);
+                    if ui.borrow().document_canvas.as_ref().map(|canvas| canvas.num_pages.unwrap_or(0)).unwrap_or(0) > 1 {
+                        // Make image invisible but keep free space in layout
+                        ui.borrow_mut().image_right.set_opacity(0.0);
+                    } else {
+                        // Make image invisible and center left page in layout
+                        ui.borrow_mut().image_right.set_visible(false);
+                    }
                     let area_height = ui.borrow().image_container.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
                 }
@@ -327,6 +335,7 @@ pub fn load_document(file: impl AsRef<Path>, ui: Rc<RefCell<Ui>>) {
                     ui.borrow_mut().image_left.set_paintable(Some(page_left.as_ref()));
                     ui.borrow_mut().image_right.set_paintable(Some(page_right.as_ref()));
                     ui.borrow_mut().image_right.set_visible(true);
+                    ui.borrow_mut().image_right.set_opacity(1.0);
                     let area_height = ui.borrow().image_container.height();
                     ui.borrow().document_canvas.as_ref().unwrap().cache_surrounding_pages(area_height);
                 },

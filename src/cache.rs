@@ -132,11 +132,14 @@ impl PageCache {
             CacheCommand::Retrieve(command) => match command {
                 RetrievePagesCommand::GetCurrentTwoPages { page_left_number } => {
                     let page_left = self.get_page_or_cache(page_left_number)?;
-                    let page_right = self.get_page_or_cache(page_left_number + 1)?;
-                    Ok(Some(CacheResponse::TwoPagesRetrieved {
-                        page_left,
-                        page_right,
-                    }))
+                    if let Ok(page_right) = self.get_page_or_cache(page_left_number + 1) {
+                        Ok(Some(CacheResponse::TwoPagesRetrieved {
+                            page_left,
+                            page_right,
+                        }))
+                    } else {
+                        Ok(Some(CacheResponse::SinglePageRetrieved { page: page_left }))
+                    }
                 }
                 RetrievePagesCommand::GetCurrentPage { page_number } => {
                     let page = self.get_page_or_cache(page_number)?;

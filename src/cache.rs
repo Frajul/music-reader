@@ -38,11 +38,11 @@ impl PageCache {
 
     pub fn get_page_or_cache(&mut self, page_number: usize) -> Result<Rc<MyPageType>> {
         if let Some(page) = self.get_page(page_number) {
-            return Ok(page);
+            Ok(page)
         } else {
             let _ = self.cache_page(page_number, 100);
             if let Some(page) = self.get_page(page_number) {
-                return Ok(page);
+                Ok(page)
             } else {
                 bail!("Failed caching and retrieving page {}", page_number);
             }

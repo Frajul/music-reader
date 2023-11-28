@@ -57,21 +57,19 @@ impl DocumentCanvas {
 
     pub fn cache_initial_pages(&self, area_height: i32) {
         self.page_cache_sender.send_priority_cache_commands(
-            &vec![self.current_page_number, self.current_page_number + 1],
+            &[self.current_page_number, self.current_page_number + 1],
             area_height,
         );
     }
 
     pub fn cache_surrounding_pages(&self, area_height: i32) {
         self.page_cache_sender.send_cache_commands(
-            &vec![
-                self.current_page_number.saturating_sub(2),
+            &[self.current_page_number.saturating_sub(2),
                 self.current_page_number.saturating_sub(1),
                 self.current_page_number,
                 self.current_page_number + 1,
                 self.current_page_number + 2,
-                self.current_page_number + 3,
-            ],
+                self.current_page_number + 3],
             area_height,
         );
     }

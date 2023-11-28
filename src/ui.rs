@@ -109,7 +109,7 @@ pub fn toggle_fullscreen(ui: &Ui) {
             ui.document_canvas
                 .as_ref()
                 .unwrap()
-                .cache_surrounding_pages(ui.image_container.height());
+                .cache_surrounding_pages(ui.image_container.height() + ui.header_bar.height());
         }
         false => {
             ui.header_bar.show();

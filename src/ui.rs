@@ -2,6 +2,7 @@ use std::{
     cell::RefCell,
     path::{Path, PathBuf},
     rc::Rc,
+    time::{Duration, Instant},
 };
 
 use gtk::{
@@ -24,6 +25,7 @@ pub struct Ui {
     pub image_left: Picture,
     pub image_right: Picture,
     pub document_canvas: Option<DocumentCanvas>,
+    pub last_touch_time: Option<Instant>,
 }
 
 pub struct DocumentCanvas {
@@ -152,6 +154,14 @@ fn process_right_click(ui: &mut Ui, _x: f64, _y: f64) {
 }
 
 fn process_left_click(ui: &mut Ui, x: f64, y: f64) {
+    if let Some(last_touch_time) = ui.last_touch_time {
+        if last_touch_time.elapsed() < Duration::from_millis(100) {
+            // Prevent accidental double touching
+            return;
+        }
+    }
+
+    ui.last_touch_time = Some(Instant::now());
     if ui.document_canvas.is_none() {
         return;
     }
@@ -238,6 +248,7 @@ impl Ui {
             image_left,
             image_right,
             document_canvas: None,
+            last_touch_time: None,
         };
         let ui = Rc::new(RefCell::new(ui));
 
